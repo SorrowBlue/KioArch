@@ -1,0 +1,7 @@
+[submodule "miniz"]
+	path = miniz
+	url = https://github.com/richgel999/miniz.git
+
+[submodule "7zip"]
+	path = 7zip
+	url = https://github.com/ip7z/7zip.git

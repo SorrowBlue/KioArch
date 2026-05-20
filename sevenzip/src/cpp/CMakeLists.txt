@@ -7,10 +7,13 @@ if(NOT ANDROID)
 endif()
 
 set(7ZIP_C_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../7zip/C")
+set(MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../miniz")
 
 # Include directories
 include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${7ZIP_C_DIR}
+    ${MINIZ_DIR}
 )
 
 if(NOT ANDROID)
@@ -58,6 +61,10 @@ endif()
 # Define the shared library target
 add_library(sevenzip SHARED
     sevenzip_jni.c
+    "${MINIZ_DIR}/miniz.c"
+    "${MINIZ_DIR}/miniz_tdef.c"
+    "${MINIZ_DIR}/miniz_tinfl.c"
+    "${MINIZ_DIR}/miniz_zip.c"
     ${7ZIP_SOURCES}
 )
 

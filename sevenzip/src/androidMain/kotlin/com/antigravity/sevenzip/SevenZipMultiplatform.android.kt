@@ -8,7 +8,7 @@ class AndroidArchiveReader(private val source: SeekableSource) : ArchiveReader {
     init {
         handle = SevenZipJni.openArchive(source)
         if (handle == 0L) {
-            throw IllegalArgumentException("Failed to open 7z archive")
+            throw IllegalArgumentException("Failed to open archive")
         }
     }
 

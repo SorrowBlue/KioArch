@@ -97,5 +97,48 @@ class SevenZipTest {
             }
         }
     }
+
+    @Test
+    fun testRealZipExtraction() {
+        var file = java.io.File("src/jvmTest/resources/test.zip")
+        if (!file.exists()) {
+            file = java.io.File("sevenzip/src/jvmTest/resources/test.zip")
+        }
+        assertTrue(file.exists(), "test.zip does not exist (tried: src/jvmTest/resources/test.zip and sevenzip/src/jvmTest/resources/test.zip)")
+
+        SevenZipMultiplatform.createReader(file).use { reader ->
+            val entries = reader.getEntries()
+            assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
+
+            println("Found ${entries.size} entries in test.zip")
+            for (entry in entries.take(5)) {
+                println("Entry: name=${entry.name}, size=${entry.size}, isDir=${entry.isDirectory}, crc=${entry.crc}")
+            }
+
+            // Find the first non-directory entry to test extraction
+            val fileEntry = entries.firstOrNull { !it.isDirectory && it.size > 0 }
+            if (fileEntry != null) {
+                println("Extracting entry: ${fileEntry.name} (${fileEntry.size} bytes)...")
+                val buffer = Buffer()
+                reader.extractEntry(fileEntry, buffer)
+                
+                // Assert that the extracted size matches the catalog entry size
+                assertEquals(fileEntry.size, buffer.size)
+
+                // Read out bytes and calculate CRC32 to verify integrity
+                val extractedBytes = buffer.readByteArray()
+                val crc = java.util.zip.CRC32()
+                crc.update(extractedBytes)
+                
+                println("Calculated CRC32: ${crc.value}, Archive CRC: ${fileEntry.crc}")
+                if (fileEntry.crc != 0L) {
+                    // CRC32 returned by miniz/zip is unsigned 32-bit int, matches java.util.zip.CRC32.value
+                    assertEquals(fileEntry.crc, crc.value)
+                }
+            } else {
+                println("No non-empty file entries found in test.zip to test extraction.")
+            }
+        }
+    }
 }
 
