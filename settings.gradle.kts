@@ -12,7 +12,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SevenZipMultiplatform"
-include(":sevenzip")
+rootProject.name = "KioArch"
+include(":kioarch")
 include(":sample:android")
 

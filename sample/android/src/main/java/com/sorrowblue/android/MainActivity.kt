@@ -20,9 +20,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import com.antigravity.sevenzip.SeekableSource
-import com.antigravity.sevenzip.SevenZipMultiplatform
-import com.sorrowblue.android.ui.theme.SevenZipMultiplatformTheme
+import com.sorrowblue.kioarch.SeekableSource
+import com.sorrowblue.kioarch.KioArch
+import com.sorrowblue.android.ui.theme.KioArchTheme
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 import java.io.FileInputStream
@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            SevenZipMultiplatformTheme {
+            KioArchTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Greeting(
                         name = "Android",
@@ -78,7 +78,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 }
 
 private fun test(source: SeekableSource) {
-    SevenZipMultiplatform.createReader(source).use { reader ->
+    KioArch.createReader(source).use { reader ->
         val entries = reader.getEntries()
 
         println("Found ${entries.size} entries in test.7z")
@@ -114,7 +114,7 @@ private fun test(source: SeekableSource) {
 @Preview(showBackground = true)
 @Composable
 fun GreetingPreview() {
-    SevenZipMultiplatformTheme {
+    KioArchTheme {
         Greeting("Android")
     }
 }
