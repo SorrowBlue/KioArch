@@ -1,9 +1,9 @@
 plugins {
-    kotlin("multiplatform") version "2.3.21"
-    id("com.android.library") version "9.1.1"
-    id("com.android.application") version "9.1.1" apply false
-    id("com.android.built-in-kotlin") version "9.1.1" apply false
-    id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.builtin) apply false
+    alias(libs.plugins.kotlin.compose) apply false
 }
 
 kotlin {
@@ -17,7 +17,7 @@ kotlin {
     sourceSets {
         val commonMain by getting {
             dependencies {
-                api("org.jetbrains.kotlinx:kotlinx-io-core:0.9.0")
+                api(libs.kotlinx.io.core)
             }
         }
         val commonTest by getting {
