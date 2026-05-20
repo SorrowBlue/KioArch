@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10.2)
+cmake_minimum_required(VERSION 4.1.2)
 project(kioarch C)
 
 # Find JNI (Only for JVM/Desktop build, Android NDK provides JNI headers automatically)

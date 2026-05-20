@@ -139,8 +139,8 @@ KioArch features fully automated native compilation during Gradle builds. When y
 
 ### Prerequisites
 
-*   **JDK 17 or 21**
-*   **CMake (3.10.2+)**
+*   **JDK 21**
+*   **CMake (4.1.2)**
 *   **Android NDK** (for Android cross-compilation)
 *   **Compiler Toolchain**: MSVC (Windows), GCC/Clang (Linux), Xcode/Clang (macOS)
 

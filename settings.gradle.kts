@@ -7,14 +7,28 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+    id("com.android.settings") version "9.2.1"
+}
+
+android {
+    compileSdk = 37
+    minSdk = 30
+}
+
+@Suppress("UnstableApiUsage")
 dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
     }
 }
 
-rootProject.name = "KioArch"
+rootProject.name = "KioArch-root"
 include(":kioarch")
+include(":kioarch:android")
 include(":sample:android")
 
