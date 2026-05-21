@@ -36,7 +36,8 @@ internal object NativeLoader {
                 else -> throw UnsupportedOperationException("Unsupported OS: $os")
             }
 
-            val resourcePath = "/natives/$dir/kioarch.$ext"
+            val prefix = if (os.contains("win")) "" else "lib"
+            val resourcePath = "/natives/$dir/${prefix}kioarch.$ext"
             val inputStream = NativeLoader::class.java.getResourceAsStream(resourcePath)
                 ?: throw IllegalStateException("Native library not found in classpath resources: $resourcePath")
 

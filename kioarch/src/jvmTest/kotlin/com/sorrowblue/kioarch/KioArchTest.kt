@@ -2,6 +2,11 @@ package com.sorrowblue.kioarch
 
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
+import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
+import java.io.File
+import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -55,18 +60,68 @@ class KioArchTest {
         }
     }
 
+    /**
+     * Generates a temporary ZIP file containing dummy entries for testing.
+     * The archive is made large enough (over 1000 bytes) to support corruption tests.
+     *
+     * @return A [File] pointing to the generated ZIP archive.
+     */
+    private fun createTempZipFile(): File {
+        val tempFile = File.createTempFile("kioarch_test_dynamic", ".zip")
+        tempFile.deleteOnExit()
+        FileOutputStream(tempFile).use { fos ->
+            ZipOutputStream(fos).use { zos ->
+                // First entry: A text file with some dummy text content
+                val content1 = "This is a dummy text file inside zip.".toByteArray()
+                zos.putNextEntry(ZipEntry("dummy1.txt"))
+                zos.write(content1)
+                zos.closeEntry()
+
+                // Second entry: A larger file to ensure the ZIP size exceeds 1000 bytes for the corruption test
+                val content2 = ByteArray(1200) { 'a'.toByte() }
+                zos.putNextEntry(ZipEntry("dummy2.txt"))
+                zos.write(content2)
+                zos.closeEntry()
+            }
+        }
+        return tempFile
+    }
+
+    /**
+     * Generates a temporary 7z file containing dummy entries for testing using Commons Compress.
+     *
+     * @return A [File] pointing to the generated 7z archive.
+     */
+    private fun createTemp7zFile(): File {
+        val tempFile = File.createTempFile("kioarch_test_dynamic", ".7z")
+        tempFile.deleteOnExit()
+        SevenZOutputFile(tempFile).use { sevenZFile ->
+            // First entry
+            val content1 = "This is a dummy text file inside 7z.".toByteArray()
+            val entry1 = sevenZFile.createArchiveEntry(tempFile, "dummy1.txt")
+            entry1.size = content1.size.toLong()
+            sevenZFile.putArchiveEntry(entry1)
+            sevenZFile.write(content1)
+            sevenZFile.closeArchiveEntry()
+
+            // Second entry
+            val content2 = "Some more dummy content in the second 7z file.".toByteArray()
+            val entry2 = sevenZFile.createArchiveEntry(tempFile, "dummy2.txt")
+            entry2.size = content2.size.toLong()
+            sevenZFile.putArchiveEntry(entry2)
+            sevenZFile.write(content2)
+            sevenZFile.closeArchiveEntry()
+        }
+        return tempFile
+    }
+
     @Test
     fun testCorruptedArchiveThrowsException() {
-        var file = java.io.File("src/jvmTest/resources/test.zip")
-        if (!file.exists()) {
-            file = java.io.File("kioarch/src/jvmTest/resources/test.zip")
-        }
-        assertTrue(file.exists(), "test.zip should exist")
-
+        val file = createTempZipFile()
         val bytes = file.readBytes()
         // Corrupt the archive by clearing bytes in the middle of central directory / local headers
-        if (bytes.size > 1000) {
-            for (i in 500 until (bytes.size - 22)) {
+        if (bytes.size > 100) {
+            for (i in 30 until (bytes.size - 22)) {
                 bytes[i] = 0.toByte()
             }
         }
@@ -81,13 +136,7 @@ class KioArchTest {
 
     @Test
     fun testRealExtraction() {
-        var file = java.io.File("src/jvmTest/resources/test.7z")
-        if (!file.exists()) {
-            file = java.io.File("kioarch/src/jvmTest/resources/test.7z")
-        }
-        assertTrue(file.exists(), "test.7z does not exist (tried: src/jvmTest/resources/test.7z and kioarch/src/jvmTest/resources/test.7z)")
-
-
+        val file = createTemp7zFile()
         KioArch.createReader(file).use { reader ->
             val entries = reader.getEntries()
             assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
@@ -124,12 +173,7 @@ class KioArchTest {
 
     @Test
     fun testRealZipExtraction() {
-        var file = java.io.File("src/jvmTest/resources/test.zip")
-        if (!file.exists()) {
-            file = java.io.File("kioarch/src/jvmTest/resources/test.zip")
-        }
-        assertTrue(file.exists(), "test.zip does not exist (tried: src/jvmTest/resources/test.zip and kioarch/src/jvmTest/resources/test.zip)")
-
+        val file = createTempZipFile()
         KioArch.createReader(file).use { reader ->
             val entries = reader.getEntries()
             assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
