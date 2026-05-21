@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.dokka)
 
     id("kioarch.versioning")
+    id("kioarch.detekt")
 }
 
 kotlin {
@@ -23,13 +24,11 @@ android {
             abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64"))
         }
     }
-    logger.lifecycle("ndkVersion: $ndkVersion")
 
     ndkVersion = "29.0.14206865"
 
     externalNativeBuild {
         cmake {
-            logger.lifecycle("version: $version")
             path = file("../src/cpp/CMakeLists.txt")
             version = "4.1.2"
         }

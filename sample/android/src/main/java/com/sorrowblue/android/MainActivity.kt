@@ -29,14 +29,14 @@ import androidx.documentfile.provider.DocumentFile
 import com.sorrowblue.android.ui.theme.KioArchTheme
 import com.sorrowblue.kioarch.KioArch
 import com.sorrowblue.kioarch.SeekableSource
-import kotlinx.io.Buffer
-import kotlinx.io.asSink
-import kotlinx.io.readByteArray
 import java.io.FileInputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import kotlin.io.println
 import kotlin.use
+import kotlinx.io.Buffer
+import kotlinx.io.asSink
+import kotlinx.io.readByteArray
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,7 +95,6 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
                 Text("7zファイルを選択")
             }
         }
-
     }
 }
 
@@ -121,7 +120,6 @@ fun saveFileInFolder(context: Context, input: SeekableSource, folderUri: Uri) {
             }
         }
     }
-
 }
 
 private fun test(source: SeekableSource) {
@@ -130,7 +128,9 @@ private fun test(source: SeekableSource) {
 
         println("Found ${entries.size} entries in test.7z")
         for (entry in entries.take(5)) {
-            println("Entry: name=${entry.name}, size=${entry.size}, isDir=${entry.isDirectory}, crc=${entry.crc}")
+            println(
+                "Entry: name=${entry.name}, size=${entry.size}, isDir=${entry.isDirectory}, crc=${entry.crc}"
+            )
         }
 
         // Find the first non-directory entry to test extraction
@@ -160,7 +160,7 @@ private fun test(source: SeekableSource) {
 
 @Preview(showBackground = true)
 @Composable
-fun GreetingPreview() {
+private fun GreetingPreview() {
     KioArchTheme {
         Greeting("Android")
     }
@@ -197,9 +197,7 @@ class UriSeekableSource(context: Context, uri: Uri) : SeekableSource {
         }
     }
 
-    override fun position(): Long {
-        return channel.position()
-    }
+    override fun position(): Long = channel.position()
 
     override fun length(): Long {
         // ParcelFileDescriptorからファイルサイズを直接取得

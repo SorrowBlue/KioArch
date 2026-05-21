@@ -32,7 +32,7 @@ internal object KioArchJni {
     }
 
     external fun openArchive(source: SeekableSource): Long
-    external fun closeArchive(handle: Long): Unit
+    external fun closeArchive(handle: Long)
     external fun getEntryCount(handle: Long): Int
     external fun getEntryInfo(handle: Long, index: Int): JniEntryInfo?
     external fun extractEntry(handle: Long, index: Int, sink: Sink): Boolean

@@ -19,7 +19,11 @@ package com.sorrowblue.kioarch
 /**
  * Base exception class representing errors during archive operations in KioArch.
  */
-public sealed class ArchiveException(message: String, cause: Throwable? = null) : Exception(message, cause)
+public sealed class ArchiveException(message: String, cause: Throwable? = null) :
+    Exception(
+        message,
+        cause
+    )
 
 /**
  * Exception thrown when the archive is corrupted or its data structure is invalid.
@@ -34,7 +38,11 @@ public class ArchiveUnsupportedException(message: String) : ArchiveException(mes
 /**
  * Exception thrown when an I/O error occurs during archive reading, writing, or seeking.
  */
-public class ArchiveIOException(message: String, cause: Throwable? = null) : ArchiveException(message, cause)
+public class ArchiveIOException(message: String, cause: Throwable? = null) :
+    ArchiveException(
+        message,
+        cause
+    )
 
 /**
  * Exception thrown when native memory allocation fails.

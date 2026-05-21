@@ -329,7 +329,7 @@ naming:
     active: true
     aliases: ['FunctionName']
     excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**']
-    functionPattern: '[a-z][a-zA-Z0-9]*'
+    functionPattern: '[a-zA-Z][a-zA-Z0-9]*'
     excludeClassPattern: '$^'
   FunctionParameterNaming:
     active: true
@@ -691,10 +691,10 @@ style:
     maxChainedCalls: 5
   MaxLineLength:
     active: true
-    maxLineLength: 120
+    maxLineLength: 100
     excludePackageStatements: true
     excludeImportStatements: true
-    excludeCommentStatements: false
+    excludeCommentStatements: true
     excludeRawStrings: true
   MayBeConstant:
     active: true
@@ -925,7 +925,7 @@ Compose:
 
 ktlint:
   active: true
-  code_style: 'intellij_idea'
+  code_style: 'android_studio'
   autoCorrect: true
   AnnotationOnSeparateLine:
     active: true

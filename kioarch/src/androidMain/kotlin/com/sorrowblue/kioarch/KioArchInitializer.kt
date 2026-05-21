@@ -24,7 +24,5 @@ public class KioArchInitializer : Initializer<Unit> {
         KioArch.loadLibrary()
     }
 
-    public override fun dependencies(): List<Class<out Initializer<*>>> {
-        return emptyList()
-    }
+    public override fun dependencies(): List<Class<out Initializer<*>>> = emptyList()
 }

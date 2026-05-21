@@ -25,37 +25,36 @@ internal class AndroidArchiveReader(private val source: SeekableSource) : Archiv
 
     init {
         handle = KioArchJni.openArchive(source)
-        if (handle == 0L) {
-            throw IllegalArgumentException("Failed to open archive")
+        require(handle == 0L) {
+            "Failed to open archive"
         }
     }
 
-    override fun getEntries(): List<ArchiveEntry> {
-        return synchronized(lock) {
-            val count = KioArchJni.getEntryCount(handle)
-            val list = ArrayList<ArchiveEntry>()
-            for (i in 0 until count) {
-                val jniInfo = KioArchJni.getEntryInfo(handle, i)
-                if (jniInfo != null) {
-                    list.add(ArchiveEntry(
+    override fun getEntries(): List<ArchiveEntry> = synchronized(lock) {
+        val count = KioArchJni.getEntryCount(handle)
+        val list = ArrayList<ArchiveEntry>()
+        for (i in 0 until count) {
+            val jniInfo = KioArchJni.getEntryInfo(handle, i)
+            if (jniInfo != null) {
+                list.add(
+                    ArchiveEntry(
                         index = jniInfo.index,
                         name = jniInfo.name.replace('\\', '/'),
                         size = jniInfo.size,
                         compressedSize = jniInfo.size,
                         isDirectory = jniInfo.isDir,
                         crc = jniInfo.crc
-                    ))
-                }
+                    )
+                )
             }
-            list
         }
+        list
     }
 
     override fun extractEntry(entry: ArchiveEntry, sink: Sink) {
         synchronized(lock) {
-            val success = KioArchJni.extractEntry(handle, entry.index, sink)
-            if (!success) {
-                throw IllegalStateException("Failed to extract entry: ${entry.name}")
+            check(KioArchJni.extractEntry(handle, entry.index, sink)) {
+                "Failed to extract entry: ${entry.name}"
             }
         }
     }
@@ -68,13 +67,12 @@ internal class AndroidArchiveReader(private val source: SeekableSource) : Archiv
 }
 
 public actual object KioArch {
-    public actual fun createReader(source: SeekableSource): ArchiveReader {
-        return AndroidArchiveReader(source)
-    }
+    public actual fun createReader(source: SeekableSource): ArchiveReader = AndroidArchiveReader(
+        source
+    )
 
-    public actual fun createReader(byteArray: ByteArray): ArchiveReader {
-        return AndroidArchiveReader(ByteArraySeekableSource(byteArray))
-    }
+    public actual fun createReader(byteArray: ByteArray): ArchiveReader =
+        AndroidArchiveReader(ByteArraySeekableSource(byteArray))
 
     private var isLoaded = false
 
@@ -93,9 +91,9 @@ public actual object KioArch {
             Log.w(
                 "KioArch",
                 "KioArch JNI library is being loaded lazily on-demand. " +
-                "To avoid potential runtime stutter or performance issues during archive operations, " +
-                "ensure it is loaded early at application startup either via Jetpack App Startup " +
-                "or by calling KioArch.loadLibrary() manually."
+                    "To avoid potential runtime stutter or performance issues during archive " +
+                    "operations, ensure it is loaded early at application startup either via " +
+                    "Jetpack App Startup or by calling KioArch.loadLibrary() manually."
             )
             loadLibrary()
         }

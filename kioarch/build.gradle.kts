@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.kotlin.dokka)
 
     id("kioarch.versioning")
+    id("kioarch.detekt")
 }
 
 kotlin {
@@ -49,6 +50,10 @@ kotlin {
                 implementation(libs.androidx.startup)
             }
         }
+    }
+
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
     }
 }
 

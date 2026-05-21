@@ -34,7 +34,13 @@ public class ByteArraySeekableSource(private val bytes: ByteArray) : SeekableSou
     }
 
     public override fun seek(position: Long) {
-        pos = if (position < 0) 0L else if (position > bytes.size) bytes.size.toLong() else position
+        pos = if (position < 0) {
+            0L
+        } else if (position > bytes.size) {
+            bytes.size.toLong()
+        } else {
+            position
+        }
     }
 
     public override fun position(): Long = pos

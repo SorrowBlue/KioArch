@@ -4,6 +4,8 @@ kotlin = "2.3.21"
 agp = "9.2.1"
 maven-publish = "0.36.0"
 dokka = "2.2.0"
+detekt = "2.0.0-alpha.3"
+detekt-compose = "0.5.9"
 
 # Libraries
 java = "21"
@@ -31,7 +33,11 @@ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = 
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "androidxLifecycleRuntimeKtx" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
 androidx-startup = { group = "androidx.startup", name = "startup-runtime", version.ref = "androidxStartup" }
-
+detekt-compose = { group = "io.nlopez.compose.rules", name = "detekt", version.ref = "detekt-compose" }
+detekt-ktlint = { group = "dev.detekt", name = "detekt-rules-ktlint-wrapper", version.ref = "detekt" }
+detekt-gradlePlugin = { group = "dev.detekt", name = "dev.detekt.gradle.plugin", version.ref = "detekt" }
+kotlin-gradlePlugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }
+#implementation("com.android.tools.build:gradle:9.2.1")
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
@@ -43,4 +49,8 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 android-builtin = { id = "com.android.built-in-kotlin", version.ref = "agp" }
 maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
 kotlin-dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }
 
+[bundles]
+detekt = ["detekt-compose", "detekt-ktlint"]
+gradlePlugin = ["detekt-gradlePlugin", "kotlin-gradlePlugin"]
