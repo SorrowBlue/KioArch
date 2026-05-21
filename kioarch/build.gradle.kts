@@ -20,6 +20,11 @@ kotlin {
 
     android {
         namespace = "com.sorrowblue.kioarch"
+
+        withHostTest {}
+        withDeviceTest {
+            instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        }
     }
 
     jvm()
@@ -48,6 +53,18 @@ kotlin {
             dependencies {
                 implementation(projects.kioarch.android)
                 implementation(libs.androidx.startup)
+            }
+        }
+        val androidHostTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
+        val androidDeviceTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.androidx.test.runner)
+                implementation(libs.androidx.test.ext.junit)
             }
         }
     }

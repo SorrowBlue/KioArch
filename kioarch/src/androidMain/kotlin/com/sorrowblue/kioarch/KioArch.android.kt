@@ -25,7 +25,7 @@ internal class AndroidArchiveReader(private val source: SeekableSource) : Archiv
 
     init {
         handle = KioArchJni.openArchive(source)
-        require(handle == 0L) {
+        require(handle != 0L) {
             "Failed to open archive"
         }
     }
