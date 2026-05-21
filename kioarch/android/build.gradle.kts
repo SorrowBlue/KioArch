@@ -14,6 +14,7 @@ kotlin {
 android {
     namespace = "com.sorrowblue.kioarch.android"
     defaultConfig {
+        consumerProguardFiles("consumer-rules.pro")
         ndk {
             // Compile for all major Android architectures
             abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64"))
