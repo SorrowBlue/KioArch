@@ -224,5 +224,27 @@ class KioArchTest {
             threads.forEach { it.join() }
         }
     }
+
+    @Test
+    fun testArchiveEntryExtractExtension() {
+        val tempFile = java.io.File.createTempFile("kioarch_ext_test", ".zip")
+        tempFile.deleteOnExit()
+
+        java.util.zip.ZipOutputStream(java.io.FileOutputStream(tempFile)).use { zos ->
+            zos.putNextEntry(java.util.zip.ZipEntry("test.txt"))
+            zos.write("hello_extension".toByteArray())
+            zos.closeEntry()
+        }
+
+        KioArch.createReader(tempFile).use { reader ->
+            val entries = reader.getEntries()
+            assertEquals(1, entries.size)
+            val entry = entries[0]
+            val buffer = Buffer()
+            // Test our new ArchiveEntry.extract extension function
+            entry.extract(reader, buffer)
+            assertEquals("hello_extension", buffer.readByteArray().decodeToString())
+        }
+    }
 }
 
