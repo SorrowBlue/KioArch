@@ -8,6 +8,7 @@ plugins {
 }
 
 kotlin {
+    explicitApi()
 
     jvmToolchain {
         vendor.set(JvmVendorSpec.ADOPTIUM)

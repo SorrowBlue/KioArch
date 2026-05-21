@@ -18,7 +18,7 @@ package com.sorrowblue.kioarch
 
 import kotlinx.io.Sink
 
-data class ArchiveEntry(
+public data class ArchiveEntry(
     val index: Int,
     val name: String,
     val size: Long,
@@ -33,6 +33,6 @@ data class ArchiveEntry(
  * @param reader the [ArchiveReader] that contains this entry
  * @param sink the [Sink] to write the extracted content to
  */
-fun ArchiveEntry.extract(reader: ArchiveReader, sink: Sink) {
+public fun ArchiveEntry.extract(reader: ArchiveReader, sink: Sink) {
     reader.extractEntry(this, sink)
 }

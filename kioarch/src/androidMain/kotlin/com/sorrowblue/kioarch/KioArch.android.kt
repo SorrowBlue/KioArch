@@ -19,7 +19,7 @@ package com.sorrowblue.kioarch
 import android.util.Log
 import kotlinx.io.Sink
 
-class AndroidArchiveReader(private val source: SeekableSource) : ArchiveReader {
+internal class AndroidArchiveReader(private val source: SeekableSource) : ArchiveReader {
     private val handle: Long
     private val lock = Any()
 
@@ -67,19 +67,19 @@ class AndroidArchiveReader(private val source: SeekableSource) : ArchiveReader {
     }
 }
 
-actual object KioArch {
-    actual fun createReader(source: SeekableSource): ArchiveReader {
+public actual object KioArch {
+    public actual fun createReader(source: SeekableSource): ArchiveReader {
         return AndroidArchiveReader(source)
     }
 
-    actual fun createReader(byteArray: ByteArray): ArchiveReader {
+    public actual fun createReader(byteArray: ByteArray): ArchiveReader {
         return AndroidArchiveReader(ByteArraySeekableSource(byteArray))
     }
 
     private var isLoaded = false
 
     @Synchronized
-    fun loadLibrary() {
+    public fun loadLibrary() {
         if (!isLoaded) {
             System.loadLibrary("kioarch")
             Log.d("KioArch", "KioArch loaded.")

@@ -18,7 +18,7 @@ package com.sorrowblue.kioarch
 
 import kotlinx.io.Sink
 
-class JvmArchiveReader(private val source: SeekableSource) : ArchiveReader {
+internal class JvmArchiveReader(private val source: SeekableSource) : ArchiveReader {
     private val handle: Long
     private val lock = Any()
 
@@ -66,12 +66,12 @@ class JvmArchiveReader(private val source: SeekableSource) : ArchiveReader {
     }
 }
 
-actual object KioArch {
-    actual fun createReader(source: SeekableSource): ArchiveReader {
+public actual object KioArch {
+    public actual fun createReader(source: SeekableSource): ArchiveReader {
         return JvmArchiveReader(source)
     }
 
-    actual fun createReader(byteArray: ByteArray): ArchiveReader {
+    public actual fun createReader(byteArray: ByteArray): ArchiveReader {
         return JvmArchiveReader(ByteArraySeekableSource(byteArray))
     }
 }

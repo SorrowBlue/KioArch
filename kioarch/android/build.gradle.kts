@@ -5,6 +5,7 @@ plugins {
 }
 
 kotlin {
+    explicitApi()
     jvmToolchain {
         vendor.set(JvmVendorSpec.ADOPTIUM)
         languageVersion.set(JavaLanguageVersion.of(libs.versions.java.get()))
