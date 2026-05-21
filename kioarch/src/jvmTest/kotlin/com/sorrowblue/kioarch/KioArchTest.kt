@@ -152,7 +152,7 @@ class KioArchTest {
                 println("Extracting entry: ${fileEntry.name} (${fileEntry.size} bytes)...")
                 val buffer = Buffer()
                 reader.extractEntry(fileEntry, buffer)
-                
+
                 // Assert that the extracted size matches the catalog entry size
                 assertEquals(fileEntry.size, buffer.size)
 
@@ -160,7 +160,7 @@ class KioArchTest {
                 val extractedBytes = buffer.readByteArray()
                 val crc = java.util.zip.CRC32()
                 crc.update(extractedBytes)
-                
+
                 println("Calculated CRC32: ${crc.value}, Archive CRC: ${fileEntry.crc}")
                 if (fileEntry.crc != 0L) {
                     assertEquals(fileEntry.crc, crc.value)
@@ -189,7 +189,7 @@ class KioArchTest {
                 println("Extracting entry: ${fileEntry.name} (${fileEntry.size} bytes)...")
                 val buffer = Buffer()
                 reader.extractEntry(fileEntry, buffer)
-                
+
                 // Assert that the extracted size matches the catalog entry size
                 assertEquals(fileEntry.size, buffer.size)
 
@@ -197,7 +197,7 @@ class KioArchTest {
                 val extractedBytes = buffer.readByteArray()
                 val crc = java.util.zip.CRC32()
                 crc.update(extractedBytes)
-                
+
                 println("Calculated CRC32: ${crc.value}, Archive CRC: ${fileEntry.crc}")
                 if (fileEntry.crc != 0L) {
                     // CRC32 returned by miniz/zip is unsigned 32-bit int, matches java.util.zip.CRC32.value

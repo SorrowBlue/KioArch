@@ -38,10 +38,10 @@ kotlin {
         jvmMain {
             resources.srcDir(layout.buildDirectory.dir("generated/natives"))
         }
-        val jvmTest by getting {
+        jvmTest {
             dependencies {
-                implementation("org.apache.commons:commons-compress:1.26.1")
-                implementation("org.tukaani:xz:1.9")
+                implementation(libs.commons.compress)
+                implementation(libs.xz)
             }
         }
         androidMain {
