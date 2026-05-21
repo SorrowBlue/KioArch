@@ -131,6 +131,43 @@ fun extractFromUri(context: Context, archiveUri: Uri) {
 }
 ```
 
+#### ⚙️ Native Library Loading Timing & Policy (Android)
+
+By default, `KioArch` utilizes **Jetpack App Startup** to automatically and safely preload the C++ native library (`libkioarch.so`) during application startup. This avoids runtime stutter (jank) when you perform archive operations for the first time.
+
+##### 1. Automatic Early Loading (Default)
+You do not need to perform any configuration. The library automatically registers a `KioArchInitializer` which loads the JNI library early on startup.
+
+##### 2. Disabling Automatic Loading
+If you wish to control the loading timing manually (e.g., to reduce application startup time or perform custom initialization), you can disable the automatic initializer by adding the following snippet to your app's `AndroidManifest.xml`:
+
+```xml
+<provider
+    android:name="androidx.startup.InitializationProvider"
+    android:authorities="${applicationId}.androidx-startup"
+    android:exported="false"
+    tools:node="merge"
+    xmlns:tools="http://schemas.android.com/tools">
+    <meta-data
+        android:name="com.sorrowblue.kioarch.KioArchInitializer"
+        tools:node="remove" />
+</provider>
+```
+
+##### 3. Manual Loading
+Once disabled, you can manually trigger the native library load at any time (e.g., in a background thread or a custom lazy loading routine) by calling:
+
+```kotlin
+import com.sorrowblue.kioarch.KioArch
+
+// Load the native library manually
+KioArch.loadLibrary()
+```
+
+> [!WARNING]
+> If you disable automatic loading and do not call `KioArch.loadLibrary()` manually before performing any archive operations, the library will fall back to **lazy load-on-demand**.
+> This will print a warning log to logcat (`KioArch: KioArch JNI library is being loaded lazily on-demand.`) as it may cause UI thread blocking and frame drops on older devices due to blocking disk I/O and linking overhead.
+
 ---
 
 ## 🛠️ Build & Development

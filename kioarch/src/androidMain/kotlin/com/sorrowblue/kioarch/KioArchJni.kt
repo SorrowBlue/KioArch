@@ -12,7 +12,7 @@ internal class JniEntryInfo(
 
 internal object KioArchJni {
     init {
-        System.loadLibrary("kioarch")
+        KioArch.loadLibraryLazily()
     }
 
     external fun openArchive(source: SeekableSource): Long

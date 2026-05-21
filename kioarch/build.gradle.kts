@@ -37,6 +37,7 @@ kotlin {
         androidMain {
             dependencies {
                 implementation(projects.kioarch.android)
+                implementation(libs.androidx.startup)
             }
         }
     }

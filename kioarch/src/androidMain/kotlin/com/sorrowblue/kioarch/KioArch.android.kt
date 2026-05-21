@@ -1,5 +1,6 @@
 package com.sorrowblue.kioarch
 
+import android.util.Log
 import kotlinx.io.Sink
 
 class AndroidArchiveReader(private val source: SeekableSource) : ArchiveReader {
@@ -57,5 +58,30 @@ actual object KioArch {
 
     actual fun createReader(byteArray: ByteArray): ArchiveReader {
         return AndroidArchiveReader(ByteArraySeekableSource(byteArray))
+    }
+
+    private var isLoaded = false
+
+    @Synchronized
+    fun loadLibrary() {
+        if (!isLoaded) {
+            System.loadLibrary("kioarch")
+            Log.d("KioArch", "KioArch loaded.")
+            isLoaded = true
+        }
+    }
+
+    @Synchronized
+    internal fun loadLibraryLazily() {
+        if (!isLoaded) {
+            Log.w(
+                "KioArch",
+                "KioArch JNI library is being loaded lazily on-demand. " +
+                "To avoid potential runtime stutter or performance issues during archive operations, " +
+                "ensure it is loaded early at application startup either via Jetpack App Startup " +
+                "or by calling KioArch.loadLibrary() manually."
+            )
+            loadLibrary()
+        }
     }
 }
