@@ -3,6 +3,7 @@ import TargetOs.Companion.currentOs
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.multiplatformLibrary)
+    alias(libs.plugins.maven.publish)
 }
 
 kotlin {
@@ -121,6 +122,46 @@ enum class TargetOs(val osName: String, val libName: String, val output: String)
         fun ProviderFactory.currentOs(): TargetOs? {
             val osName = systemProperty("os.name").map { it.lowercase() }.get()
             return TargetOs.entries.firstOrNull { osName.contains(it.osName) }
+        }
+    }
+}
+
+publishing {
+    repositories {
+        mavenLocal()
+    }
+}
+
+mavenPublishing {
+    coordinates(
+        groupId = "com.sorrowblue.kioarch",
+        artifactId = "kioarch",
+        version = "0.1.0-SNAPSHOT"
+    )
+
+    pom {
+        name.set("KioArch")
+        description.set("Kotlin Multiplatform Library for Archive Files")
+        inceptionYear.set("2026")
+        url.set("https://github.com/sorrowblue/KioArch")
+        licenses {
+            license {
+                name.set("The Apache Software License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("repo")
+            }
+        }
+        developers {
+            developer {
+                id.set("sorrowblue")
+                name.set("Sorrow Blue")
+                email.set("sorrowblue@example.com")
+            }
+        }
+        scm {
+            url.set("https://github.com/sorrowblue/KioArch")
+            connection.set("scm:git:git://github.com/sorrowblue/KioArch.git")
+            developerConnection.set("scm:git:ssh://github.com/sorrowblue/KioArch.git")
         }
     }
 }
