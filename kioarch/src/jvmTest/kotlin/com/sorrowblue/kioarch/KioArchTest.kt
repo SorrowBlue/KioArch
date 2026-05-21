@@ -181,5 +181,48 @@ class KioArchTest {
             }
         }
     }
+
+    @Test
+    fun testThreadSafetyAndPathNormalization() {
+        val tempFile = java.io.File.createTempFile("kioarch_thread_test", ".zip")
+        tempFile.deleteOnExit()
+
+        val windowsPath = "directory\\subdir\\file.txt"
+        val normalizedPath = "directory/subdir/file.txt"
+
+        // Write a zip file containing a Windows-style path
+        java.util.zip.ZipOutputStream(java.io.FileOutputStream(tempFile)).use { zos ->
+            zos.putNextEntry(java.util.zip.ZipEntry(windowsPath))
+            zos.write("hello_thread".toByteArray())
+            zos.closeEntry()
+        }
+
+        KioArch.createReader(tempFile).use { reader ->
+            // 1. Verify Path Normalization
+            val entries = reader.getEntries()
+            assertEquals(1, entries.size)
+            assertEquals(normalizedPath, entries[0].name) // Should be converted to forward slashes
+
+            // 2. Verify Thread Safety (Multiple threads concurrently calling reader operations)
+            val numThreads = 10
+            val threads = List(numThreads) {
+                kotlin.concurrent.thread(start = false) {
+                    for (i in 0 until 50) {
+                        val list = reader.getEntries()
+                        assertEquals(1, list.size)
+
+                        val buffer = Buffer()
+                        reader.extractEntry(list[0], buffer)
+                        assertEquals("hello_thread", buffer.readByteArray().decodeToString())
+                    }
+                }
+            }
+
+            // Start all threads
+            threads.forEach { it.start() }
+            // Wait for all threads to complete
+            threads.forEach { it.join() }
+        }
+    }
 }
 

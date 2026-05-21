@@ -3,6 +3,7 @@ package com.sorrowblue.android
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -102,6 +103,7 @@ fun saveFileInFolder(context: Context, input: SeekableSource, folderUri: Uri) {
     val rootDoc = DocumentFile.fromTreeUri(context, folderUri)
     KioArch.createReader(input).use { reader ->
         reader.getEntries().forEach {
+            Log.d("MainActivity", "entry: isDirectory=${it.isDirectory}, name=${it.name}")
             if (it.isDirectory) {
                 rootDoc?.createDirectory(it.name)
             } else {
