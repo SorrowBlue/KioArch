@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.maven.publish)
+    id("kioarch.versioning")
 }
 
 kotlin {
@@ -35,7 +36,7 @@ mavenPublishing {
     coordinates(
         groupId = "com.sorrowblue.kioarch",
         artifactId = "kioarch-android-native",
-        version = "0.1.0-SNAPSHOT"
+        version = project.version.toString()
     )
 
     pom {
