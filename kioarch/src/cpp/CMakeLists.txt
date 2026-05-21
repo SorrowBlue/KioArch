@@ -73,3 +73,8 @@ if(NOT ANDROID)
     target_link_libraries(kioarch ${JNI_LIBRARIES})
 endif()
 
+if(ANDROID)
+    # Support 16 KB page size devices on Android 15+
+    target_link_options(kioarch PRIVATE "-Wl,-z,max-page-size=16384")
+endif()
+
