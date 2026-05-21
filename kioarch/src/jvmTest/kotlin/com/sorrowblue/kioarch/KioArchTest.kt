@@ -140,5 +140,46 @@ class KioArchTest {
             }
         }
     }
+
+    @Test
+    fun testZipShiftJisFilename() {
+        val tempFile = java.io.File.createTempFile("kioarch_sjis_test", ".zip")
+        tempFile.deleteOnExit()
+
+        val edgeCaseNames = listOf(
+            "テスト_日本語ファイル名_Shift_JIS.txt",
+            "dame_moji_ソ表能予.txt",       // Second byte of these characters is 0x5C (backslash '\')
+            "half_width_ｶﾀｶﾅﾃｽﾄ.txt",      // Half-width Katakana
+            "cp932_extensions_①Ⅳ髙﨑.txt"  // Circled numbers, Roman numerals, NEC/IBM characters
+        )
+
+        // Write a zip file with MS932 (Windows-31J) encoding for maximum compatibility with all edge cases
+        java.util.zip.ZipOutputStream(
+            java.io.FileOutputStream(tempFile),
+            java.nio.charset.Charset.forName("MS932")
+        ).use { zos ->
+            for (name in edgeCaseNames) {
+                zos.putNextEntry(java.util.zip.ZipEntry(name))
+                zos.write("hello".toByteArray())
+                zos.closeEntry()
+            }
+        }
+
+        // Read using KioArch and verify all names are decoded correctly
+        KioArch.createReader(tempFile).use { reader ->
+            val entries = reader.getEntries()
+            assertEquals(edgeCaseNames.size, entries.size)
+
+            for (i in edgeCaseNames.indices) {
+                assertEquals(edgeCaseNames[i], entries[i].name)
+
+                // Verify extraction works too
+                val buffer = Buffer()
+                reader.extractEntry(entries[i], buffer)
+                val extractedBytes = buffer.readByteArray()
+                assertEquals("hello", extractedBytes.decodeToString())
+            }
+        }
+    }
 }
 

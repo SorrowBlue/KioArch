@@ -385,6 +385,63 @@ JNIEXPORT jint JNICALL Java_com_sorrowblue_kioarch_KioArchJni_getEntryCount(
     return 0;
 }
 
+// Helper function to check if a null-terminated string is valid UTF-8
+static int is_valid_utf8(const char *str) {
+    if (!str) return 0;
+    const unsigned char *bytes = (const unsigned char *)str;
+    while (*bytes) {
+        if (bytes[0] <= 0x7F) {
+            bytes += 1;
+        } else if ((bytes[0] & 0xE0) == 0xC0) {
+            if ((bytes[1] & 0xC0) != 0x80) return 0;
+            bytes += 2;
+        } else if ((bytes[0] & 0xF0) == 0xE0) {
+            if ((bytes[1] & 0xC0) != 0x80 || (bytes[2] & 0xC0) != 0x80) return 0;
+            bytes += 3;
+        } else if ((bytes[0] & 0xF8) == 0xF0) {
+            if ((bytes[1] & 0xC0) != 0x80 || (bytes[2] & 0xC0) != 0x80 || (bytes[3] & 0xC0) != 0x80) return 0;
+            bytes += 4;
+        } else {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// Safely creates a jstring using java.lang.String(byte[], String) constructor
+static jstring create_jstring_from_bytes(JNIEnv *env, const char *src, int is_utf8) {
+    if (src == NULL) return NULL;
+    size_t len = strlen(src);
+    jbyteArray bytes = (*env)->NewByteArray(env, (jsize)len);
+    if (bytes == NULL) return NULL;
+    (*env)->SetByteArrayRegion(env, bytes, 0, (jsize)len, (const jbyte *)src);
+
+    jstring charsetName = (*env)->NewStringUTF(env, is_utf8 ? "UTF-8" : "MS932");
+    if (charsetName == NULL) {
+        (*env)->DeleteLocalRef(env, bytes);
+        return NULL;
+    }
+
+    jclass stringClass = (*env)->FindClass(env, "java/lang/String");
+    if (stringClass == NULL) {
+        (*env)->DeleteLocalRef(env, bytes);
+        (*env)->DeleteLocalRef(env, charsetName);
+        return NULL;
+    }
+
+    jmethodID stringCtor = (*env)->GetMethodID(env, stringClass, "<init>", "([BLjava/lang/String;)V");
+    if (stringCtor == NULL) {
+        (*env)->DeleteLocalRef(env, bytes);
+        (*env)->DeleteLocalRef(env, charsetName);
+        return NULL;
+    }
+
+    jstring jstr = (*env)->NewObject(env, stringClass, stringCtor, bytes, charsetName);
+    (*env)->DeleteLocalRef(env, bytes);
+    (*env)->DeleteLocalRef(env, charsetName);
+    return jstr;
+}
+
 // JNI function to retrieve entry metadata
 JNIEXPORT jobject JNICALL Java_com_sorrowblue_kioarch_KioArchJni_getEntryInfo(
     JNIEnv *env, jobject obj, jlong handle, jint index
@@ -425,8 +482,9 @@ JNIEXPORT jobject JNICALL Java_com_sorrowblue_kioarch_KioArchJni_getEntryInfo(
             return NULL;
         }
 
-        // miniz stores names in UTF-8
-        jname = (*env)->NewStringUTF(env, stat.m_filename);
+        // Determine if UTF-8 or CP932/Shift_JIS fallback
+        int is_utf8 = ((stat.m_bit_flag & 0x0800) != 0) || is_valid_utf8(stat.m_filename);
+        jname = create_jstring_from_bytes(env, stat.m_filename, is_utf8);
         entrySize = (jlong)stat.m_uncomp_size;
         jisDir = (jboolean)stat.m_is_directory;
         jcrc = (jlong)stat.m_crc32;
