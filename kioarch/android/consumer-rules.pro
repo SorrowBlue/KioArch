@@ -30,3 +30,12 @@
 -keep class * implements kotlinx.io.Sink {
     void write(byte[], int, int);
 }
+
+# Keep ArchiveException and all its subclasses, including their constructors, since they are instantiated from JNI C++ code
+-keep class com.sorrowblue.kioarch.ArchiveException {
+    <init>(...);
+}
+-keep class * extends com.sorrowblue.kioarch.ArchiveException {
+    <init>(...);
+}
+
