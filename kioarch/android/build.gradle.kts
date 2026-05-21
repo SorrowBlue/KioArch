@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.maven.publish)
+    alias(libs.plugins.kotlin.dokka)
+
     id("kioarch.versioning")
 }
 
