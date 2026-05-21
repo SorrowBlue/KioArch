@@ -48,12 +48,36 @@ class KioArchTest {
     @Test
     fun testInvalidArchiveThrowsException() {
         val invalidData = byteArrayOf(1, 2, 3, 4, 5)
-        assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<ArchiveInvalidException> {
             KioArch.createReader(invalidData).use { reader ->
                 reader.getEntries()
             }
         }
     }
+
+    @Test
+    fun testCorruptedArchiveThrowsException() {
+        var file = java.io.File("src/jvmTest/resources/test.zip")
+        if (!file.exists()) {
+            file = java.io.File("kioarch/src/jvmTest/resources/test.zip")
+        }
+        assertTrue(file.exists(), "test.zip should exist")
+
+        val bytes = file.readBytes()
+        // Corrupt the archive by clearing bytes in the middle of central directory / local headers
+        if (bytes.size > 1000) {
+            for (i in 500 until (bytes.size - 22)) {
+                bytes[i] = 0.toByte()
+            }
+        }
+
+        assertFailsWith<ArchiveCorruptedException> {
+            KioArch.createReader(bytes).use { reader ->
+                reader.getEntries()
+            }
+        }
+    }
+
 
     @Test
     fun testRealExtraction() {

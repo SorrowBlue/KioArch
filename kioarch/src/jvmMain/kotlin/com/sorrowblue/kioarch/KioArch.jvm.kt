@@ -25,7 +25,7 @@ class JvmArchiveReader(private val source: SeekableSource) : ArchiveReader {
     init {
         handle = KioArchJni.openArchive(source)
         if (handle == 0L) {
-            throw IllegalArgumentException("Failed to open archive")
+            throw ArchiveInvalidException("Failed to open archive")
         }
     }
 
@@ -54,7 +54,7 @@ class JvmArchiveReader(private val source: SeekableSource) : ArchiveReader {
         synchronized(lock) {
             val success = KioArchJni.extractEntry(handle, entry.index, sink)
             if (!success) {
-                throw IllegalStateException("Failed to extract entry: ${entry.name}")
+                throw ArchiveCorruptedException("Failed to extract entry: ${entry.name}")
             }
         }
     }

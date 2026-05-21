@@ -17,6 +17,8 @@
 #include <jni.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #include "7z.h"
 #include "7zAlloc.h"
@@ -27,6 +29,103 @@
 #include "miniz.h"
 
 #define kInputBufSize ((size_t)1 << 18) // 256KB input buffer for LookToRead2
+
+static void throw_archive_exception(JNIEnv *env, const char *class_path, const char *format, ...) {
+    char message[512];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+
+    jclass exClass = (*env)->FindClass(env, class_path);
+    if (exClass != NULL) {
+        (*env)->ThrowNew(env, exClass, message);
+    }
+}
+
+static void throw_7z_error(JNIEnv *env, SRes res, const char *action) {
+    const char *ex_class = "com/sorrowblue/kioarch/ArchiveException";
+    const char *err_str = "Unknown error";
+
+    switch (res) {
+        case SZ_ERROR_DATA:
+            ex_class = "com/sorrowblue/kioarch/ArchiveCorruptedException";
+            err_str = "Data error (corruption)";
+            break;
+        case SZ_ERROR_MEM:
+            ex_class = "com/sorrowblue/kioarch/ArchiveOutOfMemoryException";
+            err_str = "Memory allocation failed";
+            break;
+        case SZ_ERROR_CRC:
+            ex_class = "com/sorrowblue/kioarch/ArchiveCorruptedException";
+            err_str = "CRC check failed";
+            break;
+        case SZ_ERROR_UNSUPPORTED:
+            ex_class = "com/sorrowblue/kioarch/ArchiveUnsupportedException";
+            err_str = "Unsupported archive or compression method";
+            break;
+        case SZ_ERROR_PARAM:
+            ex_class = "com/sorrowblue/kioarch/ArchiveInvalidException";
+            err_str = "Invalid parameter";
+            break;
+        case SZ_ERROR_INPUT_EOF:
+        case SZ_ERROR_OUTPUT_EOF:
+        case SZ_ERROR_READ:
+        case SZ_ERROR_WRITE:
+            ex_class = "com/sorrowblue/kioarch/ArchiveIOException";
+            err_str = "I/O error";
+            break;
+        case SZ_ERROR_ARCHIVE:
+            ex_class = "com/sorrowblue/kioarch/ArchiveCorruptedException";
+            err_str = "Archive structure is corrupted";
+            break;
+        case SZ_ERROR_NO_ARCHIVE:
+            ex_class = "com/sorrowblue/kioarch/ArchiveInvalidException";
+            err_str = "Not a valid 7z archive";
+            break;
+        default:
+            break;
+    }
+    throw_archive_exception(env, ex_class, "Failed to %s: %s (code: %d)", action, err_str, res);
+}
+
+static void throw_miniz_error(JNIEnv *env, mz_zip_error err, const char *action) {
+    const char *ex_class = "com/sorrowblue/kioarch/ArchiveException";
+    const char *err_str = mz_zip_get_error_string(err);
+
+    switch (err) {
+        case MZ_ZIP_INVALID_HEADER_OR_CORRUPTED:
+        case MZ_ZIP_CRC_CHECK_FAILED:
+        case MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE:
+        case MZ_ZIP_VALIDATION_FAILED:
+            ex_class = "com/sorrowblue/kioarch/ArchiveCorruptedException";
+            break;
+        case MZ_ZIP_UNSUPPORTED_METHOD:
+        case MZ_ZIP_UNSUPPORTED_ENCRYPTION:
+        case MZ_ZIP_UNSUPPORTED_FEATURE:
+        case MZ_ZIP_UNSUPPORTED_MULTIDISK:
+        case MZ_ZIP_UNSUPPORTED_CDIR_SIZE:
+            ex_class = "com/sorrowblue/kioarch/ArchiveUnsupportedException";
+            break;
+        case MZ_ZIP_ALLOC_FAILED:
+            ex_class = "com/sorrowblue/kioarch/ArchiveOutOfMemoryException";
+            break;
+        case MZ_ZIP_NOT_AN_ARCHIVE:
+        case MZ_ZIP_INVALID_PARAMETER:
+        case MZ_ZIP_INVALID_FILENAME:
+            ex_class = "com/sorrowblue/kioarch/ArchiveInvalidException";
+            break;
+        case MZ_ZIP_FILE_READ_FAILED:
+        case MZ_ZIP_FILE_WRITE_FAILED:
+        case MZ_ZIP_FILE_SEEK_FAILED:
+        case MZ_ZIP_WRITE_CALLBACK_FAILED:
+            ex_class = "com/sorrowblue/kioarch/ArchiveIOException";
+            break;
+        default:
+            break;
+    }
+    throw_archive_exception(env, ex_class, "Failed to %s: %s (code: %d)", action, err_str, err);
+}
 
 // JNI input stream structure mapping SeekableSource to ISeekInStream
 typedef struct {
@@ -313,6 +412,7 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
 
         res = SzArEx_Open(&archive->db, &archive->lookStream.vt, &archive->alloc, &archive->allocTemp);
         if (res != SZ_OK) {
+            throw_7z_error(env, res, "open archive");
             (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
             archive->alloc.Free(&archive->alloc, archive->lookStream.buf);
             SzArEx_Free(&archive->db, &archive->alloc);
@@ -337,6 +437,7 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
 
         zipRes = mz_zip_reader_init(&archive->zipArchive, (mz_uint64)totalLen, 0);
         if (!zipRes) {
+            throw_miniz_error(env, mz_zip_get_last_error(&archive->zipArchive), "open archive");
             (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
             free(archive);
             return 0;
@@ -344,6 +445,7 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         archive->isZipInit = 1;
     } else {
         // Unsupported format
+        throw_archive_exception(env, "com/sorrowblue/kioarch/ArchiveInvalidException", "Unsupported archive format (only 7z and ZIP are supported)");
         (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
         free(archive);
         return 0;
@@ -549,6 +651,7 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
         );
 
         if (res != SZ_OK) {
+            throw_7z_error(env, res, "extract entry");
             if (outBuffer != NULL) {
                 archive->alloc.Free(&archive->alloc, outBuffer);
             }
@@ -609,6 +712,7 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
         // Extract using miniz's callback-based decompresor
         success = mz_zip_reader_extract_to_callback(&archive->zipArchive, (mz_uint)index, Miniz_Write_Callback, &ctx, 0);
         if (!success) {
+            throw_miniz_error(env, mz_zip_get_last_error(&archive->zipArchive), "extract entry");
             return JNI_FALSE;
         }
     }
