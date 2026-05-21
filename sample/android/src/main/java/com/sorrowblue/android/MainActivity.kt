@@ -17,17 +17,25 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import com.sorrowblue.kioarch.SeekableSource
-import com.sorrowblue.kioarch.KioArch
+import androidx.documentfile.provider.DocumentFile
 import com.sorrowblue.android.ui.theme.KioArchTheme
+import com.sorrowblue.kioarch.KioArch
+import com.sorrowblue.kioarch.SeekableSource
 import kotlinx.io.Buffer
+import kotlinx.io.asSink
 import kotlinx.io.readByteArray
 import java.io.FileInputStream
 import java.io.IOException
 import java.nio.ByteBuffer
+import kotlin.io.println
+import kotlin.use
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,11 +58,24 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    var input: Uri? by remember { mutableStateOf(null) }
+    val outputLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+        onResult = { uri ->
+            uri?.let {
+                input?.let {
+                    saveFileInFolder(context, UriSeekableSource(context, input!!), uri)
+                }
+            }
+        }
+    )
     val launncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri ->
             uri?.let {
+                input = uri
                 test(UriSeekableSource(context, uri))
+                outputLauncher.launch(null)
             }
         }
     )
@@ -75,6 +96,30 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
         }
 
     }
+}
+
+fun saveFileInFolder(context: Context, input: SeekableSource, folderUri: Uri) {
+    val rootDoc = DocumentFile.fromTreeUri(context, folderUri)
+    KioArch.createReader(input).use { reader ->
+        reader.getEntries().forEach {
+            if (it.isDirectory) {
+                rootDoc?.createDirectory(it.name)
+            } else {
+                val buffer = Buffer()
+                reader.extractEntry(it, buffer)
+                val newFile = rootDoc?.createFile("*/*", it.name)
+                newFile?.uri?.let { fileUri ->
+                    context.contentResolver.openOutputStream(fileUri)?.use { outputStream ->
+                        outputStream.asSink().use {
+                            it.write(buffer, buffer.size)
+                            it.flush()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 }
 
 private fun test(source: SeekableSource) {
