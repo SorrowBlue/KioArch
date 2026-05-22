@@ -12,13 +12,13 @@ kotlin {
 }
 
 android {
-    namespace = "com.sorrowblue.android"
+    namespace = "com.sorrowblue.kioarch.sample"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.sorrowblue.android"
+        applicationId = "com.sorrowblue.kioarch.sample"
         minSdk = 30
         targetSdk = 37
         versionCode = 1
@@ -48,12 +48,15 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(projects.kioarch)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.core)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

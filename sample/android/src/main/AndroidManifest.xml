@@ -9,7 +9,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.KioArch">
         <activity
-            android:name=".MainActivity"
+            android:name="com.sorrowblue.kioarch.sample.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.KioArch">
