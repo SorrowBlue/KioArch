@@ -28,9 +28,8 @@ import java.nio.ByteBuffer
  *
  * @param pfd the parcel file descriptor to wrap
  */
-public class ParcelFileDescriptorSeekableSource(
-    private val pfd: ParcelFileDescriptor
-) : SeekableSource {
+public class ParcelFileDescriptorSeekableSource(private val pfd: ParcelFileDescriptor) :
+    SeekableSource {
     private val fis = ParcelFileDescriptor.AutoCloseInputStream(pfd)
     private val channel = fis.channel
 
