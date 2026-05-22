@@ -14,6 +14,10 @@ import kotlin.test.assertTrue
 
 class KioArchTest {
 
+    init {
+        HostTestNativeLoader.loadIfNeeded()
+    }
+
     @Test
     fun testByteArraySeekableSource() {
         val data = byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
@@ -78,7 +82,7 @@ class KioArchTest {
                 zos.closeEntry()
 
                 // Second entry: A larger file to ensure the ZIP size exceeds 1000 bytes for the corruption test
-                val content2 = ByteArray(1200) { 'a'.toByte() }
+                val content2 = ByteArray(1200) { 'a'.code.toByte() }
                 zos.putNextEntry(ZipEntry("dummy2.txt"))
                 zos.write(content2)
                 zos.closeEntry()
@@ -211,7 +215,7 @@ class KioArchTest {
 
     @Test
     fun testZipShiftJisFilename() {
-        val tempFile = java.io.File.createTempFile("kioarch_sjis_test", ".zip")
+        val tempFile = File.createTempFile("kioarch_sjis_test", ".zip")
         tempFile.deleteOnExit()
 
         val edgeCaseNames = listOf(
@@ -222,12 +226,12 @@ class KioArchTest {
         )
 
         // Write a zip file with MS932 (Windows-31J) encoding for maximum compatibility with all edge cases
-        java.util.zip.ZipOutputStream(
-            java.io.FileOutputStream(tempFile),
+        ZipOutputStream(
+            FileOutputStream(tempFile),
             java.nio.charset.Charset.forName("MS932")
         ).use { zos ->
             for (name in edgeCaseNames) {
-                zos.putNextEntry(java.util.zip.ZipEntry(name))
+                zos.putNextEntry(ZipEntry(name))
                 zos.write("hello".toByteArray())
                 zos.closeEntry()
             }
@@ -252,15 +256,15 @@ class KioArchTest {
 
     @Test
     fun testThreadSafetyAndPathNormalization() {
-        val tempFile = java.io.File.createTempFile("kioarch_thread_test", ".zip")
+        val tempFile = File.createTempFile("kioarch_thread_test", ".zip")
         tempFile.deleteOnExit()
 
         val windowsPath = "directory\\subdir\\file.txt"
         val normalizedPath = "directory/subdir/file.txt"
 
         // Write a zip file containing a Windows-style path
-        java.util.zip.ZipOutputStream(java.io.FileOutputStream(tempFile)).use { zos ->
-            zos.putNextEntry(java.util.zip.ZipEntry(windowsPath))
+        ZipOutputStream(FileOutputStream(tempFile)).use { zos ->
+            zos.putNextEntry(ZipEntry(windowsPath))
             zos.write("hello_thread".toByteArray())
             zos.closeEntry()
         }
@@ -295,11 +299,11 @@ class KioArchTest {
 
     @Test
     fun testArchiveEntryExtractExtension() {
-        val tempFile = java.io.File.createTempFile("kioarch_ext_test", ".zip")
+        val tempFile = File.createTempFile("kioarch_ext_test", ".zip")
         tempFile.deleteOnExit()
 
-        java.util.zip.ZipOutputStream(java.io.FileOutputStream(tempFile)).use { zos ->
-            zos.putNextEntry(java.util.zip.ZipEntry("test.txt"))
+        ZipOutputStream(FileOutputStream(tempFile)).use { zos ->
+            zos.putNextEntry(ZipEntry("test.txt"))
             zos.write("hello_extension".toByteArray())
             zos.closeEntry()
         }
@@ -314,5 +318,56 @@ class KioArchTest {
             assertEquals("hello_extension", buffer.readByteArray().decodeToString())
         }
     }
-}
 
+    @Test
+    fun testBulkMetadata() {
+        val tempFile = File.createTempFile("kioarch_bulk_test", ".zip")
+        tempFile.deleteOnExit()
+
+        val numEntries = 100
+        val fileNames = List(numEntries) { i -> "folder/subfolder/file_$i.txt" }
+
+        ZipOutputStream(FileOutputStream(tempFile)).use { zos ->
+            for (name in fileNames) {
+                zos.putNextEntry(ZipEntry(name))
+                zos.write("data".toByteArray())
+                zos.closeEntry()
+            }
+        }
+
+        // Create reader and verify bulk retrieval yields correct results
+        KioArch.createReader(tempFile).use { reader ->
+            val entries = reader.getEntries()
+            assertEquals(numEntries, entries.size)
+
+            val source = FileSeekableSource(tempFile)
+            val handle = KioArchJni.openArchive(source)
+            try {
+                assertTrue(handle != 0L)
+
+                // 1. Invoke getEntries (bulk JNI) and check dimensions
+                val bulkEntries = KioArchJni.getEntries(handle)
+                assertEquals(numEntries, bulkEntries.index.size)
+                assertEquals(numEntries, bulkEntries.name.size)
+                assertEquals(numEntries, bulkEntries.size.size)
+                assertEquals(numEntries, bulkEntries.isDir.size)
+                assertEquals(numEntries, bulkEntries.crc.size)
+
+                // 2. Assert bulk data matches original file properties
+                for (i in 0 until numEntries) {
+                    assertEquals(i, bulkEntries.index[i])
+                    assertEquals(fileNames[i], bulkEntries.name[i])
+                    assertEquals(4L, bulkEntries.size[i]) // "data" is 4 bytes
+                    assertEquals(false, bulkEntries.isDir[i])
+
+                    // Also check entries returned by the high-level reader
+                    assertEquals(fileNames[i], entries[i].name)
+                    assertEquals(i, entries[i].index)
+                }
+            } finally {
+                KioArchJni.closeArchive(handle)
+                source.close()
+            }
+        }
+    }
+}

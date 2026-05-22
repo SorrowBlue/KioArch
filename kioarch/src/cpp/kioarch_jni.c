@@ -486,23 +486,6 @@ JNIEXPORT void JNICALL Java_com_sorrowblue_kioarch_KioArchJni_closeArchive(
     free(archive);
 }
 
-// JNI function to get total entries
-JNIEXPORT jint JNICALL Java_com_sorrowblue_kioarch_KioArchJni_getEntryCount(
-    JNIEnv *env, jobject obj, jlong handle
-) {
-    ArchiveHandle *archive;
-    if (handle == 0) return 0;
-    archive = (ArchiveHandle *)handle;
-
-    if (archive->type == ARCHIVE_TYPE_7Z) {
-        return (jint)archive->db.NumFiles;
-    } else if (archive->type == ARCHIVE_TYPE_ZIP) {
-        return (jint)mz_zip_reader_get_num_files(&archive->zipArchive);
-    }
-
-    return 0;
-}
-
 // Helper function to check if a null-terminated string is valid UTF-8
 static int is_valid_utf8(const char *str) {
     if (!str) return 0;
@@ -560,66 +543,132 @@ static jstring create_jstring_from_bytes(JNIEnv *env, const char *src, int is_ut
     return jstr;
 }
 
-// JNI function to retrieve entry metadata
-JNIEXPORT jobject JNICALL Java_com_sorrowblue_kioarch_KioArchJni_getEntryInfo(
-    JNIEnv *env, jobject obj, jlong handle, jint index
+// JNI function to retrieve all entry metadata at once (Bulk Metadata Array)
+JNIEXPORT jobject JNICALL Java_com_sorrowblue_kioarch_KioArchJni_getEntries(
+    JNIEnv *env, jobject obj, jlong handle
 ) {
     ArchiveHandle *archive;
-    jstring jname = NULL;
-    jlong entrySize = 0;
-    jboolean jisDir = JNI_FALSE;
-    jlong jcrc = 0;
-    jclass infoClass;
+    jint count = 0;
+    jint *indices = NULL;
+    jlong *sizes = NULL;
+    jboolean *isDirs = NULL;
+    jlong *crcs = NULL;
+    jclass stringClass;
+    jobjectArray jnames = NULL;
+    jintArray jindices = NULL;
+    jlongArray jsizes = NULL;
+    jbooleanArray jisDirs = NULL;
+    jlongArray jcrcs = NULL;
+    jclass entriesClass;
     jmethodID ctor;
 
     if (handle == 0) return NULL;
     archive = (ArchiveHandle *)handle;
 
     if (archive->type == ARCHIVE_TYPE_7Z) {
-        size_t nameLen;
-        if (index < 0 || index >= (jint)archive->db.NumFiles) return NULL;
+        count = (jint)archive->db.NumFiles;
+    } else if (archive->type == ARCHIVE_TYPE_ZIP) {
+        count = (jint)mz_zip_reader_get_num_files(&archive->zipArchive);
+    }
 
-        nameLen = SzArEx_GetFileNameUtf16(&archive->db, (size_t)index, NULL);
-        if (nameLen > 0) {
-            UInt16 *nameBuf = (UInt16 *)malloc(nameLen * sizeof(UInt16));
-            if (nameBuf != NULL) {
-                SzArEx_GetFileNameUtf16(&archive->db, (size_t)index, nameBuf);
-                jname = (*env)->NewString(env, (const jchar *)nameBuf, (jsize)(nameLen - 1));
-                free(nameBuf);
+    if (count < 0) count = 0;
+
+    indices = (jint *)malloc(count * sizeof(jint));
+    sizes = (jlong *)malloc(count * sizeof(jlong));
+    isDirs = (jboolean *)malloc(count * sizeof(jboolean));
+    crcs = (jlong *)malloc(count * sizeof(jlong));
+
+    if (count > 0 && (indices == NULL || sizes == NULL || isDirs == NULL || crcs == NULL)) {
+        free(indices); free(sizes); free(isDirs); free(crcs);
+        jclass exClass = (*env)->FindClass(env, "com/sorrowblue/kioarch/ArchiveOutOfMemoryException");
+        if (exClass != NULL) {
+            (*env)->ThrowNew(env, exClass, "Out of memory allocating metadata arrays");
+        }
+        return NULL;
+    }
+
+    stringClass = (*env)->FindClass(env, "java/lang/String");
+    if (stringClass == NULL) {
+        free(indices); free(sizes); free(isDirs); free(crcs);
+        return NULL;
+    }
+
+    jnames = (*env)->NewObjectArray(env, count, stringClass, NULL);
+    if (jnames == NULL) {
+        free(indices); free(sizes); free(isDirs); free(crcs);
+        return NULL;
+    }
+
+    for (jint i = 0; i < count; i++) {
+        indices[i] = i;
+        jstring jname = NULL;
+
+        if (archive->type == ARCHIVE_TYPE_7Z) {
+            size_t nameLen = SzArEx_GetFileNameUtf16(&archive->db, (size_t)i, NULL);
+            if (nameLen > 0) {
+                UInt16 *nameBuf = (UInt16 *)malloc(nameLen * sizeof(UInt16));
+                if (nameBuf != NULL) {
+                    SzArEx_GetFileNameUtf16(&archive->db, (size_t)i, nameBuf);
+                    jname = (*env)->NewString(env, (const jchar *)nameBuf, (jsize)(nameLen - 1));
+                    free(nameBuf);
+                }
+            }
+            sizes[i] = (jlong)SzArEx_GetFileSize(&archive->db, (size_t)i);
+            isDirs[i] = (jboolean)SzArEx_IsDir(&archive->db, (size_t)i);
+            crcs[i] = (jlong)(SzBitWithVals_Check(&archive->db.CRCs, (size_t)i) ? archive->db.CRCs.Vals[i] : 0);
+        } else if (archive->type == ARCHIVE_TYPE_ZIP) {
+            mz_zip_archive_file_stat stat;
+            archive->inStream.env = env; // refresh environment
+            if (mz_zip_reader_file_stat(&archive->zipArchive, (mz_uint)i, &stat)) {
+                int is_utf8 = ((stat.m_bit_flag & 0x0800) != 0) || is_valid_utf8(stat.m_filename);
+                jname = create_jstring_from_bytes(env, stat.m_filename, is_utf8);
+                sizes[i] = (jlong)stat.m_uncomp_size;
+                isDirs[i] = (jboolean)stat.m_is_directory;
+                crcs[i] = (jlong)stat.m_crc32;
+            } else {
+                jname = NULL;
+                sizes[i] = 0;
+                isDirs[i] = JNI_FALSE;
+                crcs[i] = 0;
             }
         }
-        entrySize = (jlong)SzArEx_GetFileSize(&archive->db, (size_t)index);
-        jisDir = (jboolean)SzArEx_IsDir(&archive->db, (size_t)index);
-        jcrc = (jlong)(SzBitWithVals_Check(&archive->db.CRCs, (size_t)index) ? archive->db.CRCs.Vals[index] : 0);
-    } else if (archive->type == ARCHIVE_TYPE_ZIP) {
-        mz_zip_archive_file_stat stat;
-        if (index < 0 || index >= (jint)mz_zip_reader_get_num_files(&archive->zipArchive)) return NULL;
 
-        archive->inStream.env = env; // refresh environment
-        if (!mz_zip_reader_file_stat(&archive->zipArchive, (mz_uint)index, &stat)) {
-            return NULL;
+        if (jname == NULL) {
+            jname = (*env)->NewStringUTF(env, "");
         }
 
-        // Determine if UTF-8 or CP932/Shift_JIS fallback
-        int is_utf8 = ((stat.m_bit_flag & 0x0800) != 0) || is_valid_utf8(stat.m_filename);
-        jname = create_jstring_from_bytes(env, stat.m_filename, is_utf8);
-        entrySize = (jlong)stat.m_uncomp_size;
-        jisDir = (jboolean)stat.m_is_directory;
-        jcrc = (jlong)stat.m_crc32;
+        (*env)->SetObjectArrayElement(env, jnames, i, jname);
+        (*env)->DeleteLocalRef(env, jname);
     }
 
-    if (jname == NULL) {
-        jname = (*env)->NewStringUTF(env, "");
+    jindices = (*env)->NewIntArray(env, count);
+    jsizes = (*env)->NewLongArray(env, count);
+    jisDirs = (*env)->NewBooleanArray(env, count);
+    jcrcs = (*env)->NewLongArray(env, count);
+
+    if (jindices != NULL && jsizes != NULL && jisDirs != NULL && jcrcs != NULL) {
+        (*env)->SetIntArrayRegion(env, jindices, 0, count, indices);
+        (*env)->SetLongArrayRegion(env, jsizes, 0, count, sizes);
+        (*env)->SetBooleanArrayRegion(env, jisDirs, 0, count, (const jboolean *)isDirs);
+        (*env)->SetLongArrayRegion(env, jcrcs, 0, count, crcs);
     }
 
-    // Resolve Kotlin JniEntryInfo constructor: JniEntryInfo(index, name, size, isDir, crc)
-    infoClass = (*env)->FindClass(env, "com/sorrowblue/kioarch/JniEntryInfo");
-    if (infoClass == NULL) return NULL;
+    free(indices);
+    free(sizes);
+    free(isDirs);
+    free(crcs);
 
-    ctor = (*env)->GetMethodID(env, infoClass, "<init>", "(ILjava/lang/String;JZJ)V");
+    if (jindices == NULL || jsizes == NULL || jisDirs == NULL || jcrcs == NULL) {
+        return NULL;
+    }
+
+    entriesClass = (*env)->FindClass(env, "com/sorrowblue/kioarch/JniEntries");
+    if (entriesClass == NULL) return NULL;
+
+    ctor = (*env)->GetMethodID(env, entriesClass, "<init>", "([I[Ljava/lang/String;[J[Z[J)V");
     if (ctor == NULL) return NULL;
 
-    return (*env)->NewObject(env, infoClass, ctor, index, jname, entrySize, jisDir, jcrc);
+    return (*env)->NewObject(env, entriesClass, ctor, jindices, jnames, jsizes, jisDirs, jcrcs);
 }
 
 // JNI function to extract an entry and stream it to kotlinx.io.Sink

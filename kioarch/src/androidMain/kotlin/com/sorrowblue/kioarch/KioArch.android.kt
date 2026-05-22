@@ -24,6 +24,7 @@ internal class AndroidArchiveReader(private val source: SeekableSource) : Archiv
     private val lock = Any()
 
     init {
+        KioArch.loadLibraryLazily()
         handle = KioArchJni.openArchive(source)
         require(handle != 0L) {
             "Failed to open archive"
@@ -31,22 +32,20 @@ internal class AndroidArchiveReader(private val source: SeekableSource) : Archiv
     }
 
     override fun getEntries(): List<ArchiveEntry> = synchronized(lock) {
-        val count = KioArchJni.getEntryCount(handle)
-        val list = ArrayList<ArchiveEntry>()
+        val jniEntries = KioArchJni.getEntries(handle)
+        val count = jniEntries.index.size
+        val list = ArrayList<ArchiveEntry>(count)
         for (i in 0 until count) {
-            val jniInfo = KioArchJni.getEntryInfo(handle, i)
-            if (jniInfo != null) {
-                list.add(
-                    ArchiveEntry(
-                        index = jniInfo.index,
-                        name = jniInfo.name.replace('\\', '/'),
-                        size = jniInfo.size,
-                        compressedSize = jniInfo.size,
-                        isDirectory = jniInfo.isDir,
-                        crc = jniInfo.crc
-                    )
+            list.add(
+                ArchiveEntry(
+                    index = jniEntries.index[i],
+                    name = jniEntries.name[i].replace('\\', '/'),
+                    size = jniEntries.size[i],
+                    compressedSize = jniEntries.size[i],
+                    isDirectory = jniEntries.isDir[i],
+                    crc = jniEntries.crc[i]
                 )
-            }
+            )
         }
         list
     }

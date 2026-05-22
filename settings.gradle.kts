@@ -11,12 +11,20 @@ pluginManagement {
 
 plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+    id("org.jetbrains.kotlinx.kover.aggregation") version "0.9.8"
     id("com.android.settings") version "9.2.1"
 }
 
 android {
     compileSdk = 37
     minSdk = 30
+}
+
+kover {
+    enableCoverage()
+    reports {
+        excludedClasses.add("org.test.MyClass*")
+    }
 }
 
 @Suppress("UnstableApiUsage")

@@ -20,14 +20,13 @@ import java.io.File
 import java.io.RandomAccessFile
 
 /**
- * A JVM-specific [SeekableSource] implementation wrapping a [RandomAccessFile] for disk-based random access.
+ * A JVM/Android-specific [SeekableSource] implementation wrapping a [RandomAccessFile] for disk-based random access.
  */
 public class FileSeekableSource(file: File) : SeekableSource {
     private val raf = RandomAccessFile(file, "r")
 
-    public override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        return raf.read(buffer, offset, length)
-    }
+    public override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+        raf.read(buffer, offset, length)
 
     public override fun seek(position: Long) {
         raf.seek(position)
@@ -43,8 +42,6 @@ public class FileSeekableSource(file: File) : SeekableSource {
 }
 
 /**
- * Extension helper to create an [ArchiveReader] directly from a JVM [File].
+ * Extension helper to create an [ArchiveReader] directly from a [File].
  */
-public fun KioArch.createReader(file: File): ArchiveReader {
-    return createReader(FileSeekableSource(file))
-}
+public fun KioArch.createReader(file: File): ArchiveReader = createReader(FileSeekableSource(file))
