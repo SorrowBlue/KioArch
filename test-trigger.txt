@@ -1,1 +1,2 @@
 Third test line for no initial label test.
+Fourth test line to trigger synchronize event for PR 3.
