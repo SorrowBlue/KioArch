@@ -25,3 +25,15 @@
 - name: ":arrow_up: dependencies"
   color: "0366d6"
   description: "Dependency updates."
+
+- name: "major"
+  color: "d73a4a"
+  description: "Incompatible API changes or breaking changes that require manual migration."
+
+- name: "minor"
+  color: "f9d0c4"
+  description: "New features added in a backward-compatible manner."
+  
+- name: "patch"
+  color: "cfd3d7"
+  description: "Backward-compatible bug fixes, security updates, or minor internal adjustments."
