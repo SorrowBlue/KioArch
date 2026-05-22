@@ -1,0 +1,39 @@
+- name: ":robot: antigravity"
+  color: "0052cc"
+  description: "Created by Antigravity AI assistant."
+
+- name: ":sparkles: feature"
+  color: "a2eeef"
+  description: "New feature or enhancement."
+
+- name: ":bug: bug"
+  color: "d73a4a"
+  description: "Something isn't working."
+
+- name: ":construction_worker: chore"
+  color: "d4c5f9"
+  description: "Other trivial tasks, maintenance, build config changes, etc."
+
+- name: ":memo: documentation"
+  color: "0075ca"
+  description: "Improvements or additions to documentation."
+
+- name: ":recycle: refactor"
+  color: "bfd4f2"
+  description: "Refactoring production code."
+
+- name: ":arrow_up: dependencies"
+  color: "0366d6"
+  description: "Dependency updates."
+
+- name: "major"
+  color: "d73a4a"
+  description: "Incompatible API changes or breaking changes that require manual migration."
+
+- name: "minor"
+  color: "f9d0c4"
+  description: "New features added in a backward-compatible manner."
+  
+- name: "patch"
+  color: "cfd3d7"
+  description: "Backward-compatible bug fixes, security updates, or minor internal adjustments."
