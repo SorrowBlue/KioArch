@@ -4,44 +4,60 @@ tag-template: 'v$RESOLVED_VERSION'
 categories:
   - title: '🚀 Features'
     labels:
-      - 'feature'
+      - ':sparkles: feature'
   - title: '🐛 Bug Fixes'
     labels:
-      - 'bug'
+      - ':bug: bug'
   - title: '🧰 Chores & Maintenance'
     labels:
-      - 'chore'
-      - 'dependencies'
+      - ':construction_worker: chore'
+      - ':arrow_up: dependencies'
   - title: '📝 Documentation'
     labels:
-      - 'documentation'
+      - ':memo: documentation'
   - title: '⚙️ Refactors'
     labels:
-      - 'refactor'
+      - ':recycle: refactor'
 
 change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
 
 change-title-escapes: '\<*_&'
 
+version-resolver:
+  major:
+    labels:
+      - "major"
+  minor:
+    labels:
+      - "minor"
+  patch:
+    labels:
+      - "patch"
+  default: patch
+template: |
+  ## Changes
+
+  $CHANGES
+
 autolabeler:
-  - label: 'feature'
+  - label: ':sparkles: feature'
     branch:
       - '^feature/.*'
       - '^feat/.*'
-  - label: 'bug'
+  - label: ':bug: bug'
     branch:
       - '^bugfix/.*'
       - '^fix/.*'
-  - label: 'chore'
+  - label: ':construction_worker: chore'
     branch:
       - '^chore/.*'
-  - label: 'documentation'
+  - label: ':memo: documentation'
     branch:
       - '^docs/.*'
       - '^doc/.*'
-  - label: 'refactor'
+  - label: ':recycle: refactor'
     branch:
       - '^refactor/.*'
-  - label: 'dependencies'
+  - label: ':arrow_up: dependencies'
     branch:
       - '^dependencies/.*'
