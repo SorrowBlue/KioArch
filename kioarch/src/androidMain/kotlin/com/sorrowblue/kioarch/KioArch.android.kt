@@ -73,6 +73,9 @@ public actual object KioArch {
     public actual fun createReader(byteArray: ByteArray): ArchiveReader =
         AndroidArchiveReader(ByteArraySeekableSource(byteArray))
 
+    public actual fun createReader(path: kotlinx.io.files.Path): ArchiveReader =
+        AndroidArchiveReader(PathSeekableSource(java.nio.file.Paths.get(path.toString())))
+
     private var isLoaded = false
 
     @Synchronized

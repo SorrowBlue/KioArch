@@ -1,5 +1,7 @@
 package com.sorrowblue.kioarch
 
+import android.net.Uri
+import android.os.ParcelFileDescriptor
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
@@ -200,6 +202,76 @@ class AndroidKioArchTest {
             val buffer = Buffer()
             entry.extract(reader, buffer)
             assertEquals("hello_extension_android", buffer.readByteArray().decodeToString())
+        }
+    }
+
+    /**
+     * Verifies that [KioArch] successfully reads and extracts files from a ZIP archive
+     * using a Kotlin Multiplatform [kotlinx.io.files.Path] on Android.
+     */
+    @Test
+    fun testRealZipExtractionWithPath() {
+        val file = createTempZipFile()
+        val path = kotlinx.io.files.Path(file.absolutePath)
+        KioArch.createReader(path).use { reader ->
+            val entries = reader.getEntries()
+            assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
+
+            val fileEntry = entries.firstOrNull { !it.isDirectory && it.size > 0 }
+            if (fileEntry != null) {
+                val buffer = Buffer()
+                reader.extractEntry(fileEntry, buffer)
+                assertEquals(fileEntry.size, buffer.size)
+            } else {
+                assertTrue(false, "No non-empty file entries found in test.zip")
+            }
+        }
+    }
+
+    /**
+     * Verifies that [KioArch] successfully reads and extracts files from a ZIP archive
+     * wrapping a [ParcelFileDescriptor] on Android.
+     */
+    @Test
+    fun testParcelFileDescriptorExtraction() {
+        val file = createTempZipFile()
+        val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        KioArch.createReader(pfd).use { reader ->
+            val entries = reader.getEntries()
+            assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
+
+            val fileEntry = entries.firstOrNull { !it.isDirectory && it.size > 0 }
+            if (fileEntry != null) {
+                val buffer = Buffer()
+                reader.extractEntry(fileEntry, buffer)
+                assertEquals(fileEntry.size, buffer.size)
+            } else {
+                assertTrue(false, "No non-empty file entries found in test.zip")
+            }
+        }
+    }
+
+    /**
+     * Verifies that [KioArch] successfully reads and extracts files from a ZIP archive
+     * resolving an Android [Uri] on Android.
+     */
+    @Test
+    fun testUriExtraction() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val file = createTempZipFile()
+        val uri = Uri.fromFile(file)
+        KioArch.createReader(context, uri).use { reader ->
+            val entries = reader.getEntries()
+            assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
+
+            val fileEntry = entries.firstOrNull { !it.isDirectory && it.size > 0 }
+            if (fileEntry != null) {
+                val buffer = Buffer()
+                reader.extractEntry(fileEntry, buffer)
+                assertEquals(fileEntry.size, buffer.size)
+            } else {
+                assertTrue(false, "No non-empty file entries found in test.zip")
+            }
         }
     }
 }

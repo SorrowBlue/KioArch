@@ -16,6 +16,8 @@
 
 package com.sorrowblue.kioarch
 
+import kotlinx.io.files.Path
+
 /**
  * An in-memory implementation of [SeekableSource] wrapping a [ByteArray].
  */
@@ -62,4 +64,12 @@ public expect object KioArch {
      * Creates an [ArchiveReader] from an in-memory [ByteArray].
      */
     public fun createReader(byteArray: ByteArray): ArchiveReader
+
+    /**
+     * Creates an [ArchiveReader] from a Kotlin Multiplatform [Path].
+     *
+     * @param path the path to the archive file
+     * @return an [ArchiveReader] to read the archive
+     */
+    public fun createReader(path: Path): ArchiveReader
 }

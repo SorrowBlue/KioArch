@@ -77,6 +77,10 @@ public actual object KioArch {
         return JvmArchiveReader(ByteArraySeekableSource(byteArray))
     }
 
+    public actual fun createReader(path: kotlinx.io.files.Path): ArchiveReader {
+        return JvmArchiveReader(PathSeekableSource(java.nio.file.Paths.get(path.toString())))
+    }
+
     private var loaded = false
 
     @Synchronized

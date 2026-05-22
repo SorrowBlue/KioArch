@@ -370,4 +370,30 @@ class KioArchTest {
             }
         }
     }
+
+    @Test
+    fun testRealZipExtractionWithPath() {
+        val file = createTempZipFile()
+        val path = kotlinx.io.files.Path(file.absolutePath)
+        KioArch.createReader(path).use { reader ->
+            val entries = reader.getEntries()
+            assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
+
+            val fileEntry = entries.firstOrNull { !it.isDirectory && it.size > 0 }
+            if (fileEntry != null) {
+                val buffer = Buffer()
+                reader.extractEntry(fileEntry, buffer)
+                assertEquals(fileEntry.size, buffer.size)
+
+                val extractedBytes = buffer.readByteArray()
+                val crc = java.util.zip.CRC32()
+                crc.update(extractedBytes)
+                if (fileEntry.crc != 0L) {
+                    assertEquals(fileEntry.crc, crc.value)
+                }
+            } else {
+                assertTrue(false, "No non-empty file entries found in test.zip")
+            }
+        }
+    }
 }
