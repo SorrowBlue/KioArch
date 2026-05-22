@@ -1,27 +1,27 @@
-- name: "bot: antigravity"
+- name: ":robot: antigravity"
   color: "0052cc"
   description: "Created by Antigravity AI assistant."
 
-- name: "feature"
+- name: ":sparkles: feature"
   color: "a2eeef"
   description: "New feature or enhancement."
 
-- name: "bug"
+- name: ":bug: bug"
   color: "d73a4a"
   description: "Something isn't working."
 
-- name: "chore"
+- name: ":construction_worker: chore"
   color: "d4c5f9"
   description: "Other trivial tasks, maintenance, build config changes, etc."
 
-- name: "documentation"
+- name: ":memo: documentation"
   color: "0075ca"
   description: "Improvements or additions to documentation."
 
-- name: "refactor"
+- name: ":recycle: refactor"
   color: "bfd4f2"
   description: "Refactoring production code."
 
-- name: "dependencies"
+- name: ":arrow_up: dependencies"
   color: "0366d6"
   description: "Dependency updates."
