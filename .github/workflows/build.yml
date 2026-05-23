@@ -42,6 +42,7 @@ jobs:
         uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
         with:
           cmake-version: '4.1.2'
+          github-api-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: Run publishJvmPublicationToMavenLocal
