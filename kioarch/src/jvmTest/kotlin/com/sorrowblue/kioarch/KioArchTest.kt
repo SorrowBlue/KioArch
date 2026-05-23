@@ -1,12 +1,16 @@
 package com.sorrowblue.kioarch
 
 import kotlinx.io.Buffer
+import kotlinx.io.files.Path
 import kotlinx.io.readByteArray
 import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.charset.Charset
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -162,7 +166,7 @@ class KioArchTest {
 
                 // Read out bytes and calculate CRC32 to verify integrity
                 val extractedBytes = buffer.readByteArray()
-                val crc = java.util.zip.CRC32()
+                val crc = CRC32()
                 crc.update(extractedBytes)
 
                 println("Calculated CRC32: ${crc.value}, Archive CRC: ${fileEntry.crc}")
@@ -199,7 +203,7 @@ class KioArchTest {
 
                 // Read out bytes and calculate CRC32 to verify integrity
                 val extractedBytes = buffer.readByteArray()
-                val crc = java.util.zip.CRC32()
+                val crc = CRC32()
                 crc.update(extractedBytes)
 
                 println("Calculated CRC32: ${crc.value}, Archive CRC: ${fileEntry.crc}")
@@ -228,7 +232,7 @@ class KioArchTest {
         // Write a zip file with MS932 (Windows-31J) encoding for maximum compatibility with all edge cases
         ZipOutputStream(
             FileOutputStream(tempFile),
-            java.nio.charset.Charset.forName("MS932")
+            Charset.forName("MS932")
         ).use { zos ->
             for (name in edgeCaseNames) {
                 zos.putNextEntry(ZipEntry(name))
@@ -278,7 +282,7 @@ class KioArchTest {
             // 2. Verify Thread Safety (Multiple threads concurrently calling reader operations)
             val numThreads = 10
             val threads = List(numThreads) {
-                kotlin.concurrent.thread(start = false) {
+                thread(start = false) {
                     for (i in 0 until 50) {
                         val list = reader.getEntries()
                         assertEquals(1, list.size)
@@ -374,7 +378,7 @@ class KioArchTest {
     @Test
     fun testRealZipExtractionWithPath() {
         val file = createTempZipFile()
-        val path = kotlinx.io.files.Path(file.absolutePath)
+        val path = Path(file.absolutePath)
         KioArch.createReader(path).use { reader ->
             val entries = reader.getEntries()
             assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
@@ -386,7 +390,7 @@ class KioArchTest {
                 assertEquals(fileEntry.size, buffer.size)
 
                 val extractedBytes = buffer.readByteArray()
-                val crc = java.util.zip.CRC32()
+                val crc = CRC32()
                 crc.update(extractedBytes)
                 if (fileEntry.crc != 0L) {
                     assertEquals(fileEntry.crc, crc.value)
