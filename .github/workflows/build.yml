@@ -52,6 +52,7 @@ jobs:
         with:
           name: natives-${{ matrix.name }}
           path: kioarch/build/generated/natives/
+          retention-days: 1
 
   jvm-build:
     needs: native-binary-build
@@ -61,12 +62,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: natives-**
-          path: kioarch/build/generated/natives/
-          merge-multiple: true
-      - run: ls -R kioarch/build/generated/natives/
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
@@ -74,6 +69,12 @@ jobs:
           github-api-token: ${{ secrets.PAT }}
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: natives-**
+          path: kioarch/build/generated/natives/
+          merge-multiple: true
+      - run: ls -R kioarch/build/generated/natives/
       - name: Run publishJvmPublicationToMavenLocal
         run: ./gradlew publishJvmPublicationToMavenLocal
       - name: Upload artifact
