@@ -42,25 +42,25 @@ template: |
 autolabeler:
   - label: ':sparkles: feature'
     branch:
-      - '^feature/.*'
-      - '^feat/.*'
+      - '/^feature/.*/'
+      - '/^feat/.*/'
   - label: ':bug: bug'
     branch:
-      - '^bugfix/.*'
-      - '^fix/.*'
+      - '/^bugfix/.*/'
+      - '/^fix/.*/'
   - label: ':construction_worker: chore'
     branch:
-      - '^chore/.*'
+      - '/^chore/.*/'
   - label: 'test'
     branch:
-      - '^chore/.*'
+      - '/^chore/.*/'
   - label: ':memo: documentation'
     branch:
-      - '^docs/.*'
-      - '^doc/.*'
+      - '/^docs/.*/'
+      - '/^doc/.*/'
   - label: ':recycle: refactor'
     branch:
-      - '^refactor/.*'
+      - '/^refactor/.*/'
   - label: ':arrow_up: dependencies'
     branch:
-      - '^dependencies/.*'
+      - '/^dependencies/.*/'
