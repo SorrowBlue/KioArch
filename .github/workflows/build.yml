@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  workflow_call:
+
+jobs:
+
+  android-build:
+    uses: SorrowBlue/github-actions/.github/workflows/jvm-build.yml@main
+    with:
+      task: publishAndroidPublicationToMavenLocal
+      output-path: ~/.m2/repository/
+
+  build-jvm:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: mac
+    uses: SorrowBlue/github-actions/.github/workflows/jvm-build.yml@main
+    with:
+      runs-on: ${{ matrix.os }}
+      name: ${{ matrix.name }}
+      task: publishJvmPublicationToMavenLocal
+      output-name: jvm-${{ matrix.name }}
+      output-path: ~/.m2/repository/

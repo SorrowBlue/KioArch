@@ -21,8 +21,10 @@ version = gitVersion
 logger.lifecycle("Set version for ${project.name}: $gitVersion")
 
 gradle.taskGraph.whenReady {
-    val hasPublishTask = allTasks.any { it.name.contains("publish", ignoreCase = true) }
-    if (hasPublishTask && gitVersion == defaultVersion) {
+    val isExplicitPublish = gradle.startParameter.taskNames.any {
+        it.contains("publish", ignoreCase = true) && !it.contains("mavenLocal", ignoreCase = true)
+    }
+    if (isExplicitPublish && gitVersion == defaultVersion) {
         throw GradleException(
             "Publishing is prohibited with the fallback version '$defaultVersion'. " +
                 "Please ensure you have a valid Git tag checked out and that the repository history is fully fetched (e.g., fetch-depth: 0 in CI)."
