@@ -90,12 +90,6 @@ tasks.named("jvmProcessResources") {
     dependsOn(compileJvmNatives)
 }
 
-tasks.configureEach {
-    if (name == "processAndroidHostTestJavaRes") {
-        dependsOn(compileJvmNatives)
-    }
-}
-
 abstract class CompileJvmNativesTask @Inject constructor(
     private val fileSystemOperations: FileSystemOperations
 ) : DefaultTask() {
