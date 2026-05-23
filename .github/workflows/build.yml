@@ -66,6 +66,7 @@ jobs:
           pattern: natives-**
           path: kioarch/build/generated/natives/
           merge-multiple: true
+      - run: ls -R kioarch/build/generated/natives/
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
