@@ -36,6 +36,8 @@ android {
 }
 
 mavenPublishing {
+    publishToMavenCentral()
+
     coordinates(
         groupId = "com.sorrowblue.kioarch",
         artifactId = "kioarch-android-native",
@@ -46,7 +48,7 @@ mavenPublishing {
         name.set("KioArch Android")
         description.set("Android library component for KioArch C++ native code")
         inceptionYear.set("2026")
-        url.set("https://github.com/sorrowblue/KioArch")
+        url.set("https://github.com/SorrowBlue/KioArch")
         licenses {
             license {
                 name.set("The Apache Software License, Version 2.0")
@@ -58,13 +60,14 @@ mavenPublishing {
             developer {
                 id.set("sorrowblue")
                 name.set("Sorrow Blue")
-                email.set("sorrowblue@example.com")
+                url.set("https://github.com/SorrowBlue")
+                email.set("sorrowblue.dev@gmail.com")
             }
         }
         scm {
-            url.set("https://github.com/sorrowblue/KioArch")
-            connection.set("scm:git:git://github.com/sorrowblue/KioArch.git")
-            developerConnection.set("scm:git:ssh://github.com/sorrowblue/KioArch.git")
+            url.set("https://github.com/SorrowBlue/KioArch")
+            connection.set("scm:git:git://github.com/SorrowBlue/KioArch.git")
+            developerConnection.set("scm:git:ssh://github.com/SorrowBlue/KioArch.git")
         }
     }
 }
