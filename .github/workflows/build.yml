@@ -54,6 +54,7 @@ jobs:
           path: kioarch/build/generated/natives/
 
   jvm-build:
+    needs: native-binary-build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
