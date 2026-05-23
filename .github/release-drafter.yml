@@ -51,6 +51,9 @@ autolabeler:
   - label: ':construction_worker: chore'
     branch:
       - '^chore/.*'
+  - label: 'test'
+    branch:
+      - '^chore/.*'
   - label: ':memo: documentation'
     branch:
       - '^docs/.*'
