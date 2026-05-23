@@ -17,11 +17,13 @@
 package com.sorrowblue.kioarch
 
 import android.content.Context
+import android.util.Log
 import androidx.startup.Initializer
 
 public class KioArchInitializer : Initializer<Unit> {
     public override fun create(context: Context) {
         KioArch.loadLibrary()
+        Log.d("KioArch", "KioArch loaded.")
     }
 
     public override fun dependencies(): List<Class<out Initializer<*>>> = emptyList()
