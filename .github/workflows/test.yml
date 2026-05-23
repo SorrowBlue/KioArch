@@ -18,7 +18,7 @@ jobs:
         uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: '4.1.2'
-          github-api-token: ${{ secrets.GITHUB_TOKEN }}
+          github-api-token: ${{ secrets.PAT }}
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: Run Unit Tests
