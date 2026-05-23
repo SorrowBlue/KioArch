@@ -6,12 +6,21 @@ on:
 jobs:
 
   android-build:
-    uses: SorrowBlue/github-actions/.github/workflows/jvm-build.yml@main
-    with:
-      task: publishAndroidPublicationToMavenLocal
-      output-path: ~/.m2/repository/
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup Java and Gradle
+        uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
+      - name: Run publishAndroidPublicationToMavenLocal
+        run: ./gradlew publishAndroidPublicationToMavenLocal
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android
+          path: ~/.m2/repository/
 
-  build-jvm:
+  jvm-build:
     strategy:
       matrix:
         include:
@@ -21,10 +30,20 @@ jobs:
             name: windows
           - os: macos-latest
             name: mac
-    uses: SorrowBlue/github-actions/.github/workflows/jvm-build.yml@main
-    with:
-      runs-on: ${{ matrix.os }}
-      name: ${{ matrix.name }}
-      task: publishJvmPublicationToMavenLocal
-      output-name: jvm-${{ matrix.name }}
-      output-path: ~/.m2/repository/
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
+        with:
+          cmake-version: '4.1.2'
+      - name: Setup Java and Gradle
+        uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
+      - name: Run publishJvmPublicationToMavenLocal
+        run: ./gradlew publishJvmPublicationToMavenLocal
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jvm-${{ matrix.name }}
+          path: ~/.m2/repository/
