@@ -45,19 +45,15 @@ kotlin {
         val androidJvmMain by creating {
             dependsOn(commonMain.get())
         }
-        val androidJvmTest by creating {
-            dependsOn(commonTest.get())
-            dependencies {
-                implementation(libs.commons.compress)
-                implementation(libs.xz)
-            }
-        }
         jvmMain {
             dependsOn(androidJvmMain)
             resources.srcDir(layout.buildDirectory.dir("generated/natives"))
         }
         jvmTest {
-            dependsOn(androidJvmTest)
+            dependencies {
+                implementation(libs.commons.compress)
+                implementation(libs.xz)
+            }
         }
         androidMain {
             dependsOn(androidJvmMain)
@@ -67,8 +63,6 @@ kotlin {
             }
         }
         val androidHostTest by getting {
-            dependsOn(androidJvmTest)
-            resources.srcDir(layout.buildDirectory.dir("generated/natives"))
         }
         val androidDeviceTest by getting {
             dependencies {
@@ -94,12 +88,6 @@ val compileJvmNatives by tasks.registering(CompileJvmNativesTask::class) {
 
 tasks.named("jvmProcessResources") {
     dependsOn(compileJvmNatives)
-}
-
-tasks.configureEach {
-    if (name == "processAndroidHostTestJavaRes") {
-        dependsOn(compileJvmNatives)
-    }
 }
 
 abstract class CompileJvmNativesTask @Inject constructor(

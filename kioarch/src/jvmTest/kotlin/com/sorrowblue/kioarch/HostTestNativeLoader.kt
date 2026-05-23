@@ -19,12 +19,6 @@ internal object HostTestNativeLoader {
     fun loadIfNeeded() {
         if (loaded) return
 
-        // Skip library extraction if running on an actual Android device/emulator
-        val javaVendor = System.getProperty("java.vendor") ?: ""
-        if (javaVendor.contains("Android", ignoreCase = true)) {
-            return
-        }
-
         try {
             val os = System.getProperty("os.name")?.lowercase() ?: ""
             val (dir, ext) = when {
