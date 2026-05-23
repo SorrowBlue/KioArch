@@ -38,11 +38,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
-      - name: Setup cmake
-        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
-        with:
-          cmake-version: '4.1.2'
-          github-api-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+      - run: sdkmanager "cmake;4.1.2"
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: Run compileJvmNatives
@@ -66,11 +64,9 @@ jobs:
           pattern: natives-**
           path: kioarch/build/generated/natives/
           merge-multiple: true
-      - name: Setup cmake
-        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
-        with:
-          cmake-version: '4.1.2'
-          github-api-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+      - run: sdkmanager "cmake;4.1.2"
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: Run publishJvmPublicationToMavenLocal
