@@ -139,7 +139,10 @@ abstract class CompileIosNativesTask : DefaultTask() {
             "cmake", "-S", ".", "-B", "build_ios",
             "-G", "Xcode",
             "-DCMAKE_SYSTEM_NAME=iOS",
-            "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+            "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64",
+            "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO",
+            "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO",
+            "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="
         )
             .directory(sourceDir)
             .redirectErrorStream(true)
