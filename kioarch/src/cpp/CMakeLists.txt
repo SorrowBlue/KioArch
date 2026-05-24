@@ -60,6 +60,11 @@ endif()
 
 # Define the target library
 if(IOS)
+    # Disable code signing for iOS builds on CI/Simulator
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO")
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "")
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
+
     add_library(kioarch STATIC
         kioarch_ios.c
         "${MINIZ_DIR}/miniz.c"
