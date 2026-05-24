@@ -65,6 +65,9 @@ if(IOS)
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "")
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
 
+    # Fix ARM64 CRC32 compiler error by enabling the crc extension feature
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc")
+
     add_library(kioarch STATIC
         kioarch_ios.c
         "${MINIZ_DIR}/miniz.c"
