@@ -400,4 +400,79 @@ class KioArchTest {
             }
         }
     }
+
+    private fun createTempTarGzFile(): File {
+        val tempFile = File.createTempFile("kioarch_test_dynamic", ".tar.gz")
+        tempFile.deleteOnExit()
+        FileOutputStream(tempFile).use { fos ->
+            org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream(fos).use { gzos ->
+                org.apache.commons.compress.archivers.tar.TarArchiveOutputStream(gzos).use { tos ->
+                    // First entry
+                    val content1 = "This is a dummy text file inside tar.gz.".toByteArray()
+                    val entry1 = org.apache.commons.compress.archivers.tar.TarArchiveEntry("dummy1.txt")
+                    entry1.size = content1.size.toLong()
+                    tos.putArchiveEntry(entry1)
+                    tos.write(content1)
+                    tos.closeArchiveEntry()
+
+                    // Second entry
+                    val content2 = "Some more dummy content in the second tar.gz file.".toByteArray()
+                    val entry2 = org.apache.commons.compress.archivers.tar.TarArchiveEntry("dummy2.txt")
+                    entry2.size = content2.size.toLong()
+                    tos.putArchiveEntry(entry2)
+                    tos.write(content2)
+                    tos.closeArchiveEntry()
+
+                    // Windows path normalization test entry
+                    val content3 = "Windows path data".toByteArray()
+                    val entry3 = org.apache.commons.compress.archivers.tar.TarArchiveEntry("nested\\windows\\path.txt")
+                    entry3.size = content3.size.toLong()
+                    tos.putArchiveEntry(entry3)
+                    tos.write(content3)
+                    tos.closeArchiveEntry()
+                }
+            }
+        }
+        return tempFile
+    }
+
+    @Test
+    fun testRealTarGzExtraction() {
+        val file = createTempTarGzFile()
+        KioArch.createReader(file).use { reader ->
+            val entries = reader.getEntries()
+            assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
+
+            println("Found ${entries.size} entries in test.tar.gz")
+            for (entry in entries) {
+                println("Entry: name=${entry.name}, size=${entry.size}, isDir=${entry.isDirectory}")
+            }
+
+            assertEquals(3, entries.size)
+            assertEquals("dummy1.txt", entries[0].name)
+            assertEquals("dummy2.txt", entries[1].name)
+            assertEquals("nested/windows/path.txt", entries[2].name) // Path normalization check
+
+            // Test extraction of first entry
+            val fileEntry1 = entries[0]
+            val buffer1 = Buffer()
+            reader.extractEntry(fileEntry1, buffer1)
+            assertEquals(fileEntry1.size, buffer1.size)
+            assertEquals("This is a dummy text file inside tar.gz.", buffer1.readByteArray().decodeToString())
+
+            // Test extraction of second entry
+            val fileEntry2 = entries[1]
+            val buffer2 = Buffer()
+            reader.extractEntry(fileEntry2, buffer2)
+            assertEquals(fileEntry2.size, buffer2.size)
+            assertEquals("Some more dummy content in the second tar.gz file.", buffer2.readByteArray().decodeToString())
+
+            // Test extraction of third entry
+            val fileEntry3 = entries[2]
+            val buffer3 = Buffer()
+            reader.extractEntry(fileEntry3, buffer3)
+            assertEquals(fileEntry3.size, buffer3.size)
+            assertEquals("Windows path data", buffer3.readByteArray().decodeToString())
+        }
+    }
 }
