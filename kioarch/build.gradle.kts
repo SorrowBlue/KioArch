@@ -29,6 +29,31 @@ kotlin {
 
     jvm()
 
+    val iosTargets = listOf(iosX64(), iosArm64(), iosSimulatorArm64())
+    iosTargets.forEach { target ->
+        target.compilations.getByName("main") {
+            val kioarch by cinterops.creating {
+                defFile = project.file("src/nativeInterop/cinterop/kioarch.def")
+                includeDirs(
+                    project.file("src/cpp")
+                )
+            }
+            val architecture = when (target.name) {
+                "iosX64" -> "Release-iphonesimulator"
+                "iosSimulatorArm64" -> "Release-iphonesimulator"
+                else -> "Release-iphoneos"
+            }
+            compileTaskProvider.configure {
+                compilerOptions {
+                    freeCompilerArgs.addAll(
+                        "-linker-options", "-L${project.file("src/cpp/build_ios/$architecture").absolutePath}",
+                        "-linker-options", "-lkioarch"
+                    )
+                }
+            }
+        }
+    }
+
     applyDefaultHierarchyTemplate()
 
     sourceSets {
@@ -88,6 +113,53 @@ val compileJvmNatives by tasks.registering(CompileJvmNativesTask::class) {
 
 tasks.named("jvmProcessResources") {
     dependsOn(compileJvmNatives)
+}
+
+val compileIosNatives by tasks.registering {
+    group = "build"
+    description = "Compiles native libraries for iOS (macOS host only)"
+    onlyIf {
+        System.getProperty("os.name").lowercase().contains("mac")
+    }
+    doLast {
+        val sourceDir = layout.projectDirectory.dir("src/cpp").asFile
+        val buildDir = sourceDir.resolve("build_ios")
+        buildDir.mkdirs()
+
+        // 1. CMake Configure (iOS)
+        val process1 = ProcessBuilder(
+            "cmake", "-S", ".", "-B", "build_ios",
+            "-G", "Xcode",
+            "-DCMAKE_SYSTEM_NAME=iOS",
+            "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+        )
+            .directory(sourceDir)
+            .redirectErrorStream(true)
+            .start()
+        val output1 = process1.inputStream.bufferedReader().readText()
+        val exitCode1 = process1.waitFor()
+        if (exitCode1 != 0) {
+            throw GradleException("CMake configure for iOS failed. Output:\n$output1")
+        }
+
+        // 2. CMake Build (iOS)
+        val process2 = ProcessBuilder(
+            "cmake", "--build", "build_ios",
+            "--config", "Release"
+        )
+            .directory(sourceDir)
+            .redirectErrorStream(true)
+            .start()
+        val output2 = process2.inputStream.bufferedReader().readText()
+        val exitCode2 = process2.waitFor()
+        if (exitCode2 != 0) {
+            throw GradleException("CMake build for iOS failed. Output:\n$output2")
+        }
+    }
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.CInteropProcess>().configureEach {
+    dependsOn(compileIosNatives)
 }
 
 abstract class CompileJvmNativesTask @Inject constructor(

@@ -58,18 +58,29 @@ if(UNIX)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
 endif()
 
-# Define the shared library target
-add_library(kioarch SHARED
-    kioarch_jni.c
-    "${MINIZ_DIR}/miniz.c"
-    "${MINIZ_DIR}/miniz_tdef.c"
-    "${MINIZ_DIR}/miniz_tinfl.c"
-    "${MINIZ_DIR}/miniz_zip.c"
-    ${7ZIP_SOURCES}
-)
+# Define the target library
+if(IOS)
+    add_library(kioarch STATIC
+        kioarch_ios.c
+        "${MINIZ_DIR}/miniz.c"
+        "${MINIZ_DIR}/miniz_tdef.c"
+        "${MINIZ_DIR}/miniz_tinfl.c"
+        "${MINIZ_DIR}/miniz_zip.c"
+        ${7ZIP_SOURCES}
+    )
+else()
+    add_library(kioarch SHARED
+        kioarch_jni.c
+        "${MINIZ_DIR}/miniz.c"
+        "${MINIZ_DIR}/miniz_tdef.c"
+        "${MINIZ_DIR}/miniz_tinfl.c"
+        "${MINIZ_DIR}/miniz_zip.c"
+        ${7ZIP_SOURCES}
+    )
+endif()
 
 # Link libraries
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     target_link_libraries(kioarch ${JNI_LIBRARIES})
 endif()
 
