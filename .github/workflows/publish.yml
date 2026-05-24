@@ -34,10 +34,10 @@ jobs:
         with:
           submodules: recursive
       - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2
+        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
         with:
+          github-api-token: ${{ secrets.GITHUB_TOKEN }}
           cmake-version: '4.1.2'
-          github-api-token: ${{ secrets.PAT }}
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: Run compileJvmNatives
@@ -52,7 +52,7 @@ jobs:
   publish:
     if: github.event_name == 'release'
     needs: native-binary-build
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     environment: release
     steps:
       - name: Checkout
@@ -61,10 +61,10 @@ jobs:
           fetch-depth: 0
           submodules: recursive
       - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2
+        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
         with:
+          github-api-token: ${{ secrets.GITHUB_TOKEN }}
           cmake-version: '4.1.2'
-          github-api-token: ${{ secrets.PAT }}
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -86,7 +86,7 @@ jobs:
   publish-snapshot:
     if: github.event_name != 'release'
     needs: native-binary-build
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     environment: release
     steps:
       - name: Checkout
@@ -95,10 +95,10 @@ jobs:
           fetch-depth: 0
           submodules: recursive
       - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2
+        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
         with:
+          github-api-token: ${{ secrets.GITHUB_TOKEN }}
           cmake-version: '4.1.2'
-          github-api-token: ${{ secrets.PAT }}
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

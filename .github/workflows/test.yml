@@ -15,10 +15,10 @@ jobs:
         with:
           submodules: recursive
       - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2
+        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
         with:
+          github-api-token: ${{ secrets.GITHUB_TOKEN }}
           cmake-version: '4.1.2'
-          github-api-token: ${{ secrets.PAT }}
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: Run Unit Tests
@@ -28,6 +28,33 @@ jobs:
         uses: dorny/test-reporter@v3
         with:
           name: 'Unit Test'
+          path: '**/build/test-results/*/TEST-*.xml'
+          reporter: 'java-junit'
+          fail-on-error: false
+
+  ios-test:
+    name: iOS Test
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
+        with:
+          github-api-token: ${{ secrets.GITHUB_TOKEN }}
+          cmake-version: '4.1.2'
+      - name: Setup Java and Gradle
+        uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
+      - name: Run iOS Simulator Tests
+        run: ./gradlew :kioarch:iosSimulatorArm64Test --continue
+      - name: Upload Test Report
+        if: cancelled() != true
+        uses: dorny/test-reporter@v3
+        with:
+          name: 'iOS Test'
           path: '**/build/test-results/*/TEST-*.xml'
           reporter: 'java-junit'
           fail-on-error: false

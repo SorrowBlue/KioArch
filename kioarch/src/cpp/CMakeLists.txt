@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 4.1.2)
+cmake_minimum_required(VERSION 3.22)
 project(kioarch C)
 
 # Find JNI (Only for JVM/Desktop build, Android NDK provides JNI headers automatically)
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     find_package(JNI REQUIRED)
 endif()
 
@@ -16,7 +16,7 @@ include_directories(
     ${MINIZ_DIR}
 )
 
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     include_directories(${JNI_INCLUDE_DIRS})
 endif()
 
@@ -58,18 +58,38 @@ if(UNIX)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
 endif()
 
-# Define the shared library target
-add_library(kioarch SHARED
-    kioarch_jni.c
-    "${MINIZ_DIR}/miniz.c"
-    "${MINIZ_DIR}/miniz_tdef.c"
-    "${MINIZ_DIR}/miniz_tinfl.c"
-    "${MINIZ_DIR}/miniz_zip.c"
-    ${7ZIP_SOURCES}
-)
+# Define the target library
+if(IOS)
+    # Disable code signing for iOS builds on CI/Simulator
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO")
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "")
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
+
+    # Fix ARM64 CRC32 and SHA256 compiler errors by enabling crc and crypto extension features
+    # Use -Xarch_arm64 to only apply this flag for ARM64 target and avoid conflicts on x86_64 simulator
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Xarch_arm64 -march=armv8-a+crc+crypto")
+
+    add_library(kioarch STATIC
+        kioarch_ios.c
+        "${MINIZ_DIR}/miniz.c"
+        "${MINIZ_DIR}/miniz_tdef.c"
+        "${MINIZ_DIR}/miniz_tinfl.c"
+        "${MINIZ_DIR}/miniz_zip.c"
+        ${7ZIP_SOURCES}
+    )
+else()
+    add_library(kioarch SHARED
+        kioarch_jni.c
+        "${MINIZ_DIR}/miniz.c"
+        "${MINIZ_DIR}/miniz_tdef.c"
+        "${MINIZ_DIR}/miniz_tinfl.c"
+        "${MINIZ_DIR}/miniz_zip.c"
+        ${7ZIP_SOURCES}
+    )
+endif()
 
 # Link libraries
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     target_link_libraries(kioarch ${JNI_LIBRARIES})
 endif()
 
