@@ -122,7 +122,6 @@ class KioArchTest {
         }
         return tempFile
     }
-
     @Test
     fun testCorruptedArchiveThrowsException() {
         val file = createTempZipFile()
@@ -401,6 +400,56 @@ class KioArchTest {
         }
     }
 
+    @Test
+    fun testLargeZipExtraction() {
+        val tempZipFile = File.createTempFile("kioarch_large_test", ".zip")
+        tempZipFile.deleteOnExit()
+
+        val dataSize = 10 * 1024 * 1024 // 10MB
+        // 1. Write 10MB pattern to temp bin file and ZIP stream
+        FileOutputStream(tempZipFile).use { fos ->
+            ZipOutputStream(fos).use { zos ->
+                zos.putNextEntry(ZipEntry("large_dummy.bin"))
+                val buffer = ByteArray(1024 * 1024) // 1MB buffer
+                var written = 0
+                while (written < dataSize) {
+                    for (i in buffer.indices) {
+                        buffer[i] = ((written + i) % 256).toByte()
+                    }
+                    zos.write(buffer)
+                    written += buffer.size
+                }
+                zos.closeEntry()
+            }
+        }
+
+        // 2. Extract using KioArch and verify integrity
+        val path = Path(tempZipFile.absolutePath)
+        KioArch.createReader(path).use { reader ->
+            val entries = reader.getEntries()
+            assertEquals(1, entries.size)
+            val entry = entries[0]
+            assertEquals("large_dummy.bin", entry.name)
+            assertEquals(dataSize.toLong(), entry.size)
+
+            val buffer = Buffer()
+            reader.extractEntry(entry, buffer)
+            assertEquals(dataSize.toLong(), buffer.size)
+
+            var verifiedBytes = 0L
+            val chunk = ByteArray(1024 * 1024)
+            while (buffer.size > 0) {
+                val toRead = if (buffer.size > chunk.size) chunk.size else buffer.size.toInt()
+                val readBytes = buffer.readAtMostTo(chunk, 0, toRead)
+                for (i in 0 until readBytes) {
+                    assertEquals(((verifiedBytes + i) % 256).toByte(), chunk[i])
+                }
+                verifiedBytes += readBytes
+            }
+            assertEquals(dataSize.toLong(), verifiedBytes)
+        }
+    }
+
     private fun createTempTarGzFile(): File {
         val tempFile = File.createTempFile("kioarch_test_dynamic", ".tar.gz")
         tempFile.deleteOnExit()
@@ -473,6 +522,108 @@ class KioArchTest {
             reader.extractEntry(fileEntry3, buffer3)
             assertEquals(fileEntry3.size, buffer3.size)
             assertEquals("Windows path data", buffer3.readByteArray().decodeToString())
+        }
+    }
+
+    @Test
+    fun testLarge7zExtraction() {
+        val temp7zFile = File.createTempFile("kioarch_large_7z_test", ".7z")
+        temp7zFile.deleteOnExit()
+
+        val dataSize = 10 * 1024 * 1024 // 10MB
+        SevenZOutputFile(temp7zFile).use { sevenZFile ->
+            val entry = sevenZFile.createArchiveEntry(temp7zFile, "large_dummy.bin")
+            entry.size = dataSize.toLong()
+            sevenZFile.putArchiveEntry(entry)
+            
+            val buffer = ByteArray(1024 * 1024) // 1MB buffer
+            var written = 0
+            while (written < dataSize) {
+                for (i in buffer.indices) {
+                    buffer[i] = ((written + i) % 256).toByte()
+                }
+                sevenZFile.write(buffer)
+                written += buffer.size
+            }
+            sevenZFile.closeArchiveEntry()
+        }
+
+        val path = Path(temp7zFile.absolutePath)
+        KioArch.createReader(path).use { reader ->
+            val entries = reader.getEntries()
+            assertEquals(1, entries.size)
+            val entry = entries[0]
+            assertEquals("large_dummy.bin", entry.name)
+            assertEquals(dataSize.toLong(), entry.size)
+
+            val buffer = Buffer()
+            reader.extractEntry(entry, buffer)
+            assertEquals(dataSize.toLong(), buffer.size)
+
+            var verifiedBytes = 0L
+            val chunk = ByteArray(1024 * 1024)
+            while (buffer.size > 0) {
+                val toRead = if (buffer.size > chunk.size) chunk.size else buffer.size.toInt()
+                val readBytes = buffer.readAtMostTo(chunk, 0, toRead)
+                for (i in 0 until readBytes) {
+                    assertEquals(((verifiedBytes + i) % 256).toByte(), chunk[i])
+                }
+                verifiedBytes += readBytes
+            }
+            assertEquals(dataSize.toLong(), verifiedBytes)
+        }
+    }
+
+    @Test
+    fun testLargeTarGzExtraction() {
+        val tempTarGzFile = File.createTempFile("kioarch_large_targz_test", ".tar.gz")
+        tempTarGzFile.deleteOnExit()
+
+        val dataSize = 10 * 1024 * 1024 // 10MB
+        FileOutputStream(tempTarGzFile).use { fos ->
+            org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream(fos).use { gzos ->
+                org.apache.commons.compress.archivers.tar.TarArchiveOutputStream(gzos).use { tos ->
+                    val entry = org.apache.commons.compress.archivers.tar.TarArchiveEntry("large_dummy.bin")
+                    entry.size = dataSize.toLong()
+                    tos.putArchiveEntry(entry)
+                    
+                    val buffer = ByteArray(1024 * 1024) // 1MB buffer
+                    var written = 0
+                    while (written < dataSize) {
+                        for (i in buffer.indices) {
+                            buffer[i] = ((written + i) % 256).toByte()
+                        }
+                        tos.write(buffer)
+                        written += buffer.size
+                    }
+                    tos.closeArchiveEntry()
+                }
+            }
+        }
+
+        val path = Path(tempTarGzFile.absolutePath)
+        KioArch.createReader(path).use { reader ->
+            val entries = reader.getEntries()
+            assertEquals(1, entries.size)
+            val entry = entries[0]
+            assertEquals("large_dummy.bin", entry.name)
+            assertEquals(dataSize.toLong(), entry.size)
+
+            val buffer = Buffer()
+            reader.extractEntry(entry, buffer)
+            assertEquals(dataSize.toLong(), buffer.size)
+
+            var verifiedBytes = 0L
+            val chunk = ByteArray(1024 * 1024)
+            while (buffer.size > 0) {
+                val toRead = if (buffer.size > chunk.size) chunk.size else buffer.size.toInt()
+                val readBytes = buffer.readAtMostTo(chunk, 0, toRead)
+                for (i in 0 until readBytes) {
+                    assertEquals(((verifiedBytes + i) % 256).toByte(), chunk[i])
+                }
+                verifiedBytes += readBytes
+            }
+            assertEquals(dataSize.toLong(), verifiedBytes)
         }
     }
 }

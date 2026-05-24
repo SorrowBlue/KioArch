@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 4.1.2)
+cmake_minimum_required(VERSION 3.22)
 project(kioarch C)
 
 # Find JNI (Only for JVM/Desktop build, Android NDK provides JNI headers automatically)
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     find_package(JNI REQUIRED)
 endif()
 
@@ -16,7 +16,7 @@ include_directories(
     ${MINIZ_DIR}
 )
 
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     include_directories(${JNI_INCLUDE_DIRS})
 endif()
 

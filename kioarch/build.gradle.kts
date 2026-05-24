@@ -38,19 +38,14 @@ kotlin {
                     project.file("src/cpp")
                 )
             }
-            val architecture = when (target.name) {
-                "iosX64" -> "Release-iphonesimulator"
-                "iosSimulatorArm64" -> "Release-iphonesimulator"
-                else -> "Release-iphoneos"
-            }
-            compileTaskProvider.configure {
-                compilerOptions {
-                    freeCompilerArgs.addAll(
-                        "-linker-options", "-L${project.file("src/cpp/build_ios/$architecture").absolutePath}",
-                        "-linker-options", "-lkioarch"
-                    )
-                }
-            }
+        }
+        val architecture = when (target.name) {
+            "iosX64" -> "Release-iphonesimulator"
+            "iosSimulatorArm64" -> "Release-iphonesimulator"
+            else -> "Release-iphoneos"
+        }
+        target.binaries.all {
+            linkerOpts("-L${project.file("src/cpp/build_ios/$architecture").absolutePath}", "-lkioarch")
         }
     }
 
@@ -115,14 +110,27 @@ tasks.named("jvmProcessResources") {
     dependsOn(compileJvmNatives)
 }
 
-val compileIosNatives by tasks.registering {
+val compileIosNatives by tasks.registering(CompileIosNativesTask::class) {
     group = "build"
     description = "Compiles native libraries for iOS (macOS host only)"
     onlyIf {
         System.getProperty("os.name").lowercase().contains("mac")
     }
-    doLast {
-        val sourceDir = layout.projectDirectory.dir("src/cpp").asFile
+    cppSourceDir = layout.projectDirectory.dir("src/cpp")
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.CInteropProcess>().configureEach {
+    dependsOn(compileIosNatives)
+}
+
+abstract class CompileIosNativesTask : DefaultTask() {
+
+    @get:InputDirectory
+    abstract val cppSourceDir: DirectoryProperty
+
+    @TaskAction
+    fun compile() {
+        val sourceDir = cppSourceDir.get().asFile
         val buildDir = sourceDir.resolve("build_ios")
         buildDir.mkdirs()
 
@@ -142,24 +150,36 @@ val compileIosNatives by tasks.registering {
             throw GradleException("CMake configure for iOS failed. Output:\n$output1")
         }
 
-        // 2. CMake Build (iOS)
-        val process2 = ProcessBuilder(
+        // 2a. CMake Build (iOS Device)
+        val process2a = ProcessBuilder(
             "cmake", "--build", "build_ios",
-            "--config", "Release"
+            "--config", "Release",
+            "--", "-sdk", "iphoneos"
         )
             .directory(sourceDir)
             .redirectErrorStream(true)
             .start()
-        val output2 = process2.inputStream.bufferedReader().readText()
-        val exitCode2 = process2.waitFor()
-        if (exitCode2 != 0) {
-            throw GradleException("CMake build for iOS failed. Output:\n$output2")
+        val output2a = process2a.inputStream.bufferedReader().readText()
+        val exitCode2a = process2a.waitFor()
+        if (exitCode2a != 0) {
+            throw GradleException("CMake build for iOS Device failed. Output:\n$output2a")
+        }
+
+        // 2b. CMake Build (iOS Simulator)
+        val process2b = ProcessBuilder(
+            "cmake", "--build", "build_ios",
+            "--config", "Release",
+            "--", "-sdk", "iphonesimulator"
+        )
+            .directory(sourceDir)
+            .redirectErrorStream(true)
+            .start()
+        val output2b = process2b.inputStream.bufferedReader().readText()
+        val exitCode2b = process2b.waitFor()
+        if (exitCode2b != 0) {
+            throw GradleException("CMake build for iOS Simulator failed. Output:\n$output2b")
         }
     }
-}
-
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.CInteropProcess>().configureEach {
-    dependsOn(compileIosNatives)
 }
 
 abstract class CompileJvmNativesTask @Inject constructor(
@@ -275,4 +295,22 @@ mavenPublishing {
             developerConnection.set("scm:git:ssh://github.com/SorrowBlue/KioArch.git")
         }
     }
+}
+
+val generateLargeTestFiles by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Generates large 7z and tar.gz files for iOS testing"
+    dependsOn("jvmTestClasses")
+    classpath = kotlin.targets.getByName("jvm").compilations.getByName("test").let {
+        files(it.output.allOutputs, it.runtimeDependencyFiles)
+    }
+    mainClass.set("com.sorrowblue.kioarch.LargeTestFileGenerator")
+    args(layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath)
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest>().configureEach {
+    dependsOn(generateLargeTestFiles)
+    val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
+    environment("LARGE_7Z_PATH", "$testDir/large.7z")
+    environment("LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
 }

@@ -118,10 +118,16 @@ typedef struct {
 
 // Unified ArchiveHandle for iOS
 typedef struct {
+    ISeekInStream vt;
+    kio_source_t *kioSource;
+} Ios7zInStream;
+
+typedef struct {
     ArchiveType type;
     kio_source_t source;
 
     // 7-Zip Context
+    Ios7zInStream ios7zStream;
     CLookToRead2 lookStream;
     CSzArEx db;
     ISzAlloc alloc;
@@ -139,11 +145,12 @@ typedef struct {
 
 // 7-Zip ISeekInStream.Read callback implementation calling custom Kotlin callback
 static SRes IosInStream_Read(ISeekInStreamPtr p, void *buf, size_t *size) {
-    kio_source_t *stream = (kio_source_t *)p;
+    Ios7zInStream *stream = (Ios7zInStream *)p;
+    kio_source_t *kio = stream->kioSource;
     size_t originalSize = *size;
     if (originalSize == 0) return SZ_OK;
 
-    int32_t readBytes = stream->read(stream->opaque, (uint8_t *)buf, (int32_t)originalSize);
+    int32_t readBytes = kio->read(kio->opaque, (uint8_t *)buf, (int32_t)originalSize);
     if (readBytes < 0) {
         *size = 0;
         return SZ_ERROR_FAIL;
@@ -154,18 +161,19 @@ static SRes IosInStream_Read(ISeekInStreamPtr p, void *buf, size_t *size) {
 
 // 7-Zip ISeekInStream.Seek callback implementation calling custom Kotlin callback
 static SRes IosInStream_Seek(ISeekInStreamPtr p, Int64 *pos, ESzSeek origin) {
-    kio_source_t *stream = (kio_source_t *)p;
+    Ios7zInStream *stream = (Ios7zInStream *)p;
+    kio_source_t *kio = stream->kioSource;
     Int64 newPos = *pos;
 
     if (origin == SZ_SEEK_CUR) {
-        int64_t cur = stream->position(stream->opaque);
+        int64_t cur = kio->position(kio->opaque);
         newPos += cur;
     } else if (origin == SZ_SEEK_END) {
-        int64_t len = stream->length(stream->opaque);
+        int64_t len = kio->length(kio->opaque);
         newPos += len;
     }
 
-    stream->seek(stream->opaque, newPos);
+    kio->seek(kio->opaque, newPos);
     *pos = newPos;
     return SZ_OK;
 }
@@ -440,10 +448,9 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
         archive->allocTemp.Alloc = SzAllocTemp;
         archive->allocTemp.Free = SzFreeTemp;
 
-        // Custom structure callbacks mapping kio_source_t to ISeekInStream vt
-        ISeekInStream *vt = (ISeekInStream *)&archive->source;
-        vt->Read = IosInStream_Read;
-        vt->Seek = IosInStream_Seek;
+        archive->ios7zStream.vt.Read = IosInStream_Read;
+        archive->ios7zStream.vt.Seek = IosInStream_Seek;
+        archive->ios7zStream.kioSource = &archive->source;
 
         // Allocate input buffer for LookToRead2 stream
         archive->lookStream.buf = (Byte *)archive->alloc.Alloc(&archive->alloc, kInputBufSize);
@@ -453,7 +460,7 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
             return 0;
         }
         archive->lookStream.bufSize = kInputBufSize;
-        archive->lookStream.realStream = vt;
+        archive->lookStream.realStream = &archive->ios7zStream.vt;
         LookToRead2_CreateVTable(&archive->lookStream, False);
         LookToRead2_INIT(&archive->lookStream);
 

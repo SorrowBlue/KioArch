@@ -47,6 +47,7 @@ public actual object KioArch {
             // Resolve the resource subdirectory based on OS and architecture
             val (dir, ext) = when {
                 os.contains("win") -> "windows/amd64" to "dll"
+                os.contains("mac") || os.contains("darwin") -> "macos/universal" to "dylib"
                 os.contains("linux") -> "linux/amd64" to "so"
                 else -> throw UnsupportedOperationException("Unsupported OS: $os")
             }

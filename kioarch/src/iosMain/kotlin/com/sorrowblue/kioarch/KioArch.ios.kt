@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 
 package com.sorrowblue.kioarch
 
@@ -20,56 +21,60 @@ import kotlinx.cinterop.*
 import kotlinx.io.files.Path
 import kotlinx.io.Sink
 import platform.posix.*
+import platform.Foundation.NSLock
 import com.sorrowblue.kioarch.internal.cinterop.*
 
+private inline fun <T> NSLock.withLock(action: () -> T): T {
+    this.lock()
+    try {
+        return action()
+    } finally {
+        this.unlock()
+    }
+}
+
 private class IosPathSeekableSource(pathStr: String) : SeekableSource {
-    private val file = fopen(pathStr, "rb") ?: throw ArchiveException("Failed to open file: $pathStr")
-    private val lock = Any()
+    private val file = fopen(pathStr, "rb") ?: throw ArchiveIOException("Failed to open file: $pathStr")
+    private val lock = NSLock()
     private var isClosed = false
 
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        return synchronized(lock) {
-            if (isClosed) return -1
-            buffer.usePinned { pinned ->
-                val bytesRead = fread(pinned.addressOf(offset), 1uL, length.toULong(), file)
-                if (bytesRead == 0uL) {
-                    if (feof(file) != 0) {
-                        return -1
-                    }
-                    throw ArchiveException("Error reading from file")
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = lock.withLock {
+        if (isClosed) return -1
+        buffer.usePinned { pinned ->
+            val bytesRead = fread(pinned.addressOf(offset), 1uL, length.toULong(), file)
+            if (bytesRead == 0uL) {
+                if (feof(file) != 0) {
+                    return -1
                 }
-                bytesRead.toInt()
+                throw ArchiveIOException("Error reading from file")
             }
+            bytesRead.toInt()
         }
     }
 
     override fun seek(position: Long) {
-        synchronized(lock) {
+        lock.withLock {
             if (isClosed) return
             fseek(file, position, SEEK_SET)
         }
     }
 
-    override fun position(): Long {
-        return synchronized(lock) {
-            if (isClosed) 0L else ftell(file)
-        }
+    override fun position(): Long = lock.withLock {
+        if (isClosed) 0L else ftell(file)
     }
 
-    override fun length(): Long {
-        return synchronized(lock) {
-            if (isClosed) 0L else {
-                val current = ftell(file)
-                fseek(file, 0L, SEEK_END)
-                val len = ftell(file)
-                fseek(file, current, SEEK_SET)
-                len
-            }
+    override fun length(): Long = lock.withLock {
+        if (isClosed) 0L else {
+            val current = ftell(file)
+            fseek(file, 0L, SEEK_END)
+            val len = ftell(file)
+            fseek(file, current, SEEK_SET)
+            len
         }
     }
 
     override fun close() {
-        synchronized(lock) {
+        lock.withLock {
             if (!isClosed) {
                 fclose(file)
                 isClosed = true
@@ -83,90 +88,84 @@ private class IosArchiveReader(
     private val handle: Long
 ) : ArchiveReader {
 
-    private val lock = Any()
+    private val lock = NSLock()
     private var isClosed = false
 
-    override fun getEntries(): List<ArchiveEntry> {
-        return synchronized(lock) {
-            if (isClosed) throw IllegalStateException("Reader is closed")
-            val count = kio_get_entry_count(handle.toULong())
-            if (count < 0) return emptyList()
+    override fun getEntries(): List<ArchiveEntry> = lock.withLock {
+        if (isClosed) throw IllegalStateException("Reader is closed")
+        val count = kio_get_entry_count(handle.toULong())
+        if (count < 0) return emptyList()
 
-            val list = ArrayList<ArchiveEntry>(count)
-            memScoped {
-                val entry = alloc<kio_entry_t>()
-                for (i in 0 until count) {
-                    if (kio_get_entry(handle.toULong(), i, entry.ptr) != 0) {
-                        val cName = entry.name
-                        val nameStr = cName?.toKString() ?: ""
-                        val normalizedName = nameStr.replace('\\', '/')
-                        list.add(
-                            ArchiveEntry(
-                                index = entry.index,
-                                name = normalizedName,
-                                size = entry.size,
-                                compressedSize = entry.size,
-                                isDirectory = entry.is_dir != 0,
-                                crc = entry.crc.toLong()
-                            )
+        val list = ArrayList<ArchiveEntry>(count)
+        memScoped {
+            val entry = alloc<kio_entry_t>()
+            for (i in 0 until count) {
+                if (kio_get_entry(handle.toULong(), i, entry.ptr) != 0) {
+                    val cName = entry.name
+                    val nameStr = cName?.toKString() ?: ""
+                    val normalizedName = nameStr.replace('\\', '/')
+                    list.add(
+                        ArchiveEntry(
+                            index = entry.index,
+                            name = normalizedName,
+                            size = entry.size,
+                            compressedSize = entry.size,
+                            isDirectory = entry.is_dir != 0,
+                            crc = entry.crc.toLong()
                         )
-                        if (cName != null) {
-                            free(cName)
-                        }
-                    }
-                }
-            }
-            list
-        }
-    }
-
-    override fun extractEntry(entry: ArchiveEntry, sink: Sink) {
-        synchronized(lock) {
-            if (isClosed) throw IllegalStateException("Reader is closed")
-            val sinkStableRef = StableRef.create(sink)
-            try {
-                memScoped {
-                    val errMsgBytes = allocArray<ByteVar>(512)
-                    
-                    val kioSink = alloc<kio_sink_t>().apply {
-                        write = staticCFunction { opaque: COpaquePointer?, buf: CPointer<ByteVar>?, len: Int ->
-                            if (opaque == null || buf == null) return@staticCFunction
-                            val innerSink = opaque.asStableRef<Sink>().get()
-                            val byteArray = ByteArray(len)
-                            for (i in 0 until len) {
-                                byteArray[i] = buf[i].toByte()
-                            }
-                            innerSink.write(byteArray, 0, len)
-                        }
-                        opaque = sinkStableRef.asCPointer()
-                    }
-
-                    val success = kio_extract_entry(
-                        handle.toULong(),
-                        entry.index,
-                        kioSink.readValue(),
-                        errMsgBytes,
-                        512
                     )
-
-                    if (success == 0) {
-                        val errMsg = errMsgBytes.toKString()
-                        throw ArchiveException("Failed to extract entry: ${entry.name}. Native error: $errMsg")
+                    if (cName != null) {
+                        free(cName)
                     }
                 }
-            } finally {
-                sinkStableRef.dispose()
             }
+        }
+        list
+    }
+
+    override fun extractEntry(entry: ArchiveEntry, sink: Sink) = lock.withLock {
+        if (isClosed) throw IllegalStateException("Reader is closed")
+        val sinkStableRef = StableRef.create(sink)
+        try {
+            memScoped {
+                val errMsgBytes = allocArray<ByteVar>(512)
+                
+                val kioSink = alloc<kio_sink_t>().apply {
+                    write = staticCFunction { opaque: COpaquePointer?, buf: CPointer<UByteVar>?, len: Int ->
+                        if (opaque == null || buf == null) return@staticCFunction
+                        val innerSink = opaque.asStableRef<Sink>().get()
+                        val byteArray = ByteArray(len)
+                        for (i in 0 until len) {
+                            byteArray[i] = buf[i].toByte()
+                        }
+                        innerSink.write(byteArray, 0, len)
+                    }
+                    opaque = sinkStableRef.asCPointer()
+                }
+
+                val success = kio_extract_entry(
+                    handle.toULong(),
+                    entry.index,
+                    kioSink.readValue(),
+                    errMsgBytes,
+                    512
+                )
+
+                if (success == 0) {
+                    val errMsg = errMsgBytes.toKString()
+                    throw ArchiveIOException("Failed to extract entry: ${entry.name}. Native error: $errMsg")
+                }
+            }
+        } finally {
+            sinkStableRef.dispose()
         }
     }
 
-    override fun close() {
-        synchronized(lock) {
-            if (!isClosed) {
-                kio_close_archive(handle.toULong())
-                sourceStableRef.dispose()
-                isClosed = true
-            }
+    override fun close() = lock.withLock {
+        if (!isClosed) {
+            kio_close_archive(handle.toULong())
+            sourceStableRef.dispose()
+            isClosed = true
         }
     }
 }
@@ -191,14 +190,14 @@ public actual object KioArch {
                 val errMsgBytes = allocArray<ByteVar>(512)
                 
                 val kioSource = alloc<kio_source_t>().apply {
-                    read = staticCFunction { opaque: COpaquePointer?, buf: CPointer<ByteVar>?, len: Int ->
+                    read = staticCFunction { opaque: COpaquePointer?, buf: CPointer<UByteVar>?, len: Int ->
                         if (opaque == null || buf == null) return@staticCFunction -1
                         val innerSource = opaque.asStableRef<SeekableSource>().get()
                         val byteArray = ByteArray(len)
                         val readBytes = innerSource.read(byteArray, 0, len)
                         if (readBytes > 0) {
                             for (i in 0 until readBytes) {
-                                buf[i] = byteArray[i].toByte()
+                                buf[i] = byteArray[i].toUByte()
                             }
                         }
                         readBytes
@@ -224,7 +223,7 @@ public actual object KioArch {
                 handle = kio_open_archive(kioSource.readValue(), errMsgBytes, 512)
                 if (handle == 0uL) {
                     val errMsg = errMsgBytes.toKString()
-                    throw ArchiveException("Failed to open archive. Native error: $errMsg")
+                    throw ArchiveIOException("Failed to open archive. Native error: $errMsg")
                 }
             }
             return IosArchiveReader(sourceStableRef, handle.toLong())
