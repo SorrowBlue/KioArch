@@ -34,7 +34,7 @@ jobs:
 
   ios-test:
     name: iOS Test
-    runs-on: macos-14
+    runs-on: macos-lasest
 
     steps:
       - name: Checkout
