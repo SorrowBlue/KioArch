@@ -66,7 +66,8 @@ if(IOS)
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
 
     # Fix ARM64 CRC32 and SHA256 compiler errors by enabling crc and crypto extension features
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc+crypto")
+    # Use -Xarch_arm64 to only apply this flag for ARM64 target and avoid conflicts on x86_64 simulator
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Xarch_arm64 -march=armv8-a+crc+crypto")
 
     add_library(kioarch STATIC
         kioarch_ios.c
