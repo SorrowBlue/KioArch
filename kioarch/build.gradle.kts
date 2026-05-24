@@ -1,4 +1,5 @@
 import TargetOs.Companion.currentOs
+import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -29,6 +30,7 @@ kotlin {
 
     jvm()
 
+    val xcf = XCFramework("KioArch")
     val iosTargets = listOf(iosX64(), iosArm64(), iosSimulatorArm64())
     iosTargets.forEach { target ->
         target.compilations.getByName("main") {
@@ -38,6 +40,10 @@ kotlin {
                     project.file("src/cpp")
                 )
             }
+        }
+        target.binaries.framework {
+            baseName = "KioArch"
+            xcf.add(this)
         }
         val architecture = when (target.name) {
             "iosX64" -> "Release-iphonesimulator"
