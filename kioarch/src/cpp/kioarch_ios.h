@@ -60,4 +60,6 @@ int32_t kio_get_entry(uint64_t handle, int32_t index, kio_entry_t *entry);
 
 int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char *err_msg, int32_t err_msg_len);
 
+uint64_t kio_get_resident_memory(void);
+
 #endif // KIOARCH_IOS_H

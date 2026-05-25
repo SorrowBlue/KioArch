@@ -35,6 +35,7 @@ import platform.posix.fwrite
 import platform.posix.remove
 import platform.posix.usleep
 import platform.posix.getenv
+import com.sorrowblue.kioarch.internal.cinterop.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -147,7 +148,7 @@ private fun createLargeStoreZipBytes(dataSize: Int): ByteArray {
     return zipBytes
 }
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, kotlin.native.runtime.NativeRuntimeApi::class)
 class KioArchIosTest {
 
     // A tiny ZIP file containing "test.txt" with content "hello" (119 bytes)
@@ -470,5 +471,82 @@ class KioArchIosTest {
             }
             assertEquals(10 * 1024 * 1024L, verifiedBytes)
         }
+    }
+
+    /**
+     * Verifies that repeatedly attempting to open and read a corrupted archive
+     * does not cause native memory leaks or crash the runtime during exception handling.
+     */
+    @Test
+    fun testLeakBrokenArchive() {
+        val bytes = tinyZipBytes.copyOf()
+        // Corrupt central directory structure in the tiny ZIP to trigger errors
+        for (i in 40 until 80) {
+            bytes[i] = 0.toByte()
+        }
+
+        val initialMem = kio_get_resident_memory().toLong()
+        println("testLeakBrokenArchive - Initial Memory: ${initialMem / 1024 / 1024} MB")
+
+        repeat(200) {
+            assertFailsWith<ArchiveIOException> {
+                KioArch.createReader(bytes).use { reader ->
+                    reader.getEntries()
+                }
+            }
+        }
+
+        // Trigger Kotlin Native Garbage Collection to free memory pools
+        kotlin.native.runtime.GC.collect()
+
+        val finalMem = kio_get_resident_memory().toLong()
+        val growth = finalMem - initialMem
+        println("testLeakBrokenArchive - Final Memory: ${finalMem / 1024 / 1024} MB (Growth: ${growth / 1024 / 1024} MB)")
+
+        // Assert that the memory growth is minimal (less than 5MB)
+        assertTrue(growth < 5 * 1024 * 1024, "Memory leak detected in error handling paths! Growth: ${growth / 1024 / 1024} MB")
+    }
+
+    /**
+     * Verifies that repeatedly extracting a moderate-sized 10MB archive (7z) 20 times
+     * does not leak native allocations, StableRefs, or heap buffers.
+     */
+    @Test
+    fun testLeakLargeArchive() {
+        val pathStr = getenv("LARGE_7Z_PATH")?.toKString()
+        if (pathStr == null) {
+            println("Skipping testLeakLargeArchive because LARGE_7Z_PATH is not set")
+            return
+        }
+
+        val path = Path(pathStr)
+        val initialMem = kio_get_resident_memory().toLong()
+        println("testLeakLargeArchive - Initial Memory: ${initialMem / 1024 / 1024} MB")
+
+        repeat(20) { i ->
+            KioArch.createReader(path).use { reader ->
+                val entries = reader.getEntries()
+                val entry = entries.firstOrNull { !it.isDirectory }
+                if (entry != null) {
+                    val buffer = Buffer()
+                    reader.extractEntry(entry, buffer)
+                }
+            }
+            // Collect GC periodically to clean up temporary Kotlin allocations
+            kotlin.native.runtime.GC.collect()
+            val currentMem = kio_get_resident_memory().toLong()
+            if ((i + 1) % 5 == 0) {
+                println("testLeakLargeArchive - Iteration ${i + 1} Memory: ${currentMem / 1024 / 1024} MB")
+            }
+        }
+
+        kotlin.native.runtime.GC.collect()
+        val finalMem = kio_get_resident_memory().toLong()
+        val growth = finalMem - initialMem
+        println("testLeakLargeArchive - Final Memory: ${finalMem / 1024 / 1024} MB (Growth: ${growth / 1024 / 1024} MB)")
+
+        // Assert that memory growth is minimal (less than 15MB). 
+        // If there were a leak of 10MB per extraction, it would grow by >200MB over 20 iterations.
+        assertTrue(growth < 15 * 1024 * 1024, "Memory leak detected in large file extraction! Growth: ${growth / 1024 / 1024} MB")
     }
 }

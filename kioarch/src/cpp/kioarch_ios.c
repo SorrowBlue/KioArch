@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <mach/mach.h>
 
 #include "7z.h"
 #include "7zAlloc.h"
@@ -734,3 +735,17 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
 
     return 1;
 }
+
+uint64_t kio_get_resident_memory(void) {
+    struct task_basic_info info;
+    mach_msg_type_number_t size = TASK_BASIC_INFO_COUNT;
+    kern_return_t kerr = task_info(mach_task_self(),
+                                   TASK_BASIC_INFO,
+                                   (task_info_t)&info,
+                                   &size);
+    if (kerr == KERN_SUCCESS) {
+        return (uint64_t)info.resident_size;
+    }
+    return 0;
+}
+
