@@ -14,8 +14,11 @@
  * limitations under the License.
  */
 
+@file:OptIn(kotlin.experimental.ExperimentalObjCName::class)
+
 package com.sorrowblue.kioarch
 
+import kotlin.native.ObjCName
 import kotlinx.io.Sink
 
 public interface ArchiveReader : AutoCloseable {
@@ -27,5 +30,6 @@ public interface ArchiveReader : AutoCloseable {
     /**
      * Extracts the content of the specified entry and writes it into the kotlinx.io.Sink.
      */
+    @ObjCName(name = "extractEntry", swiftName = "extract")
     public fun extractEntry(entry: ArchiveEntry, sink: Sink)
 }

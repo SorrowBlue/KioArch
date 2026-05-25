@@ -14,78 +14,6 @@ extension KotlinByteArray {
     }
 }
 
-// Swift implementation of Kotlin's SeekableSource interface
-class FileSeekableSource: NSObject, SeekableSource {
-    private let fileHandle: FileHandle
-    private let fileLength: Int64
-
-    init?(path: String) {
-        guard let handle = FileHandle(forReadingAtPath: path) else {
-            return nil
-        }
-        self.fileHandle = handle
-        
-        do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: path)
-            if let size = attributes[.size] as? UInt64 {
-                self.fileLength = Int64(size)
-            } else {
-                self.fileLength = 0
-            }
-        } catch {
-            return nil
-        }
-    }
-
-    func read(buffer: KotlinByteArray, offset: Int32, length: Int32) -> Int32 {
-        do {
-            guard let data = try fileHandle.read(upToCount: Int(length)) else {
-                return -1 // EOF
-            }
-            if data.isEmpty {
-                return -1 // EOF
-            }
-            
-            // Copy Swift Data into KotlinByteArray
-            for (i, byte) in data.enumerated() {
-                buffer.set(index: offset + Int32(i), value: Int8(bitPattern: byte))
-            }
-            return Int32(data.count)
-        } catch {
-            return -1
-        }
-    }
-
-    func seek(position: Int64) {
-        do {
-            try fileHandle.seek(toOffset: UInt64(position))
-        } catch {
-            print("FileSeekableSource seek error: \(error)")
-        }
-    }
-
-    func position() -> Int64 {
-        do {
-            let offset = try fileHandle.offset()
-            return Int64(offset)
-        } catch {
-            return 0
-        }
-    }
-
-    func length() -> Int64 {
-        return fileLength
-    }
-
-    func close() {
-        do {
-            try fileHandle.close()
-        } catch {
-            print("FileSeekableSource close error: \(error)")
-        }
-    }
-}
-
 // Structure to represent a file/folder node in the explorer tree
 struct FilerNode: Identifiable {
     let id: String // Unique ID (uses fullName)
@@ -460,19 +388,9 @@ struct ContentView: View {
             url.stopAccessingSecurityScopedResource()
         }
         
-        let path = url.path
-        
         do {
-            // Instantiate Swift implementation of Kotlin's SeekableSource
-            guard let source = FileSeekableSource(path: path) else {
-                errorMessage = "Failed to open file: \(url.lastPathComponent)"
-                isLoading = false
-                return
-            }
-            
-            // Pass SeekableSource directly into Kotlin Multiplatform createReader
-            let instance = KioArch()
-            let reader = instance.createReader(source: source)
+            // Pass URL directly into Kotlin Multiplatform createReader
+            let reader = KioArch.shared.createReader(nsUrl: url)
             
             self.activeReader = reader
             let rawEntries = reader.getEntries()
