@@ -6,6 +6,8 @@ import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 public object LargeTestFileGenerator {
     @JvmStatic
@@ -18,9 +20,10 @@ public object LargeTestFileGenerator {
         outDir.mkdirs()
 
         val dataSize = 10 * 1024 * 1024 // 10MB
+        val dataSize100m = 100 * 1024 * 1024 // 100MB
         val buffer = ByteArray(1024 * 1024) // 1MB buffer
 
-        // 7z
+        // 7z (10MB)
         val file7z = outDir.resolve("large.7z")
         if (!file7z.exists()) {
             println("Generating large 7z: ${file7z.absolutePath}")
@@ -43,7 +46,7 @@ public object LargeTestFileGenerator {
             println("large.7z already exists")
         }
 
-        // tar.gz
+        // tar.gz (10MB)
         val fileTarGz = outDir.resolve("large.tar.gz")
         if (!fileTarGz.exists()) {
             println("Generating large tar.gz: ${fileTarGz.absolutePath}")
@@ -68,6 +71,81 @@ public object LargeTestFileGenerator {
             }
         } else {
             println("large.tar.gz already exists")
+        }
+
+        // 7z (100MB)
+        val file7z100m = outDir.resolve("large_100m.7z")
+        if (!file7z100m.exists()) {
+            println("Generating 100MB 7z: ${file7z100m.absolutePath}")
+            SevenZOutputFile(file7z100m).use { sevenZFile ->
+                val entry = sevenZFile.createArchiveEntry(file7z100m, "large_dummy.bin")
+                entry.size = dataSize100m.toLong()
+                sevenZFile.putArchiveEntry(entry)
+
+                var written = 0
+                while (written < dataSize100m) {
+                    for (i in buffer.indices) {
+                        buffer[i] = ((written + i) % 256).toByte()
+                    }
+                    sevenZFile.write(buffer)
+                    written += buffer.size
+                }
+                sevenZFile.closeArchiveEntry()
+            }
+        } else {
+            println("large_100m.7z already exists")
+        }
+
+        // tar.gz (100MB)
+        val fileTarGz100m = outDir.resolve("large_100m.tar.gz")
+        if (!fileTarGz100m.exists()) {
+            println("Generating 100MB tar.gz: ${fileTarGz100m.absolutePath}")
+            FileOutputStream(fileTarGz100m).use { fos ->
+                GzipCompressorOutputStream(fos).use { gzos ->
+                    TarArchiveOutputStream(gzos).use { tos ->
+                        val entry = TarArchiveEntry("large_dummy.bin")
+                        entry.size = dataSize100m.toLong()
+                        tos.putArchiveEntry(entry)
+
+                        var written = 0
+                        while (written < dataSize100m) {
+                            for (i in buffer.indices) {
+                                buffer[i] = ((written + i) % 256).toByte()
+                            }
+                            tos.write(buffer)
+                            written += buffer.size
+                        }
+                        tos.closeArchiveEntry()
+                    }
+                }
+            }
+        } else {
+            println("large_100m.tar.gz already exists")
+        }
+
+        // zip (100MB)
+        val fileZip100m = outDir.resolve("large_100m.zip")
+        if (!fileZip100m.exists()) {
+            println("Generating 100MB zip: ${fileZip100m.absolutePath}")
+            FileOutputStream(fileZip100m).use { fos ->
+                ZipOutputStream(fos).use { zos ->
+                    val entry = ZipEntry("large_dummy.bin")
+                    entry.size = dataSize100m.toLong()
+                    zos.putNextEntry(entry)
+
+                    var written = 0
+                    while (written < dataSize100m) {
+                        for (i in buffer.indices) {
+                            buffer[i] = ((written + i) % 256).toByte()
+                        }
+                        zos.write(buffer)
+                        written += buffer.size
+                    }
+                    zos.closeEntry()
+                }
+            }
+        } else {
+            println("large_100m.zip already exists")
         }
     }
 }

@@ -321,4 +321,14 @@ tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest
     val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
     environment("LARGE_7Z_PATH", "$testDir/large.7z")
     environment("LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
+    environment("LARGE_100M_7Z_PATH", "$testDir/large_100m.7z")
+    environment("LARGE_100M_TARGZ_PATH", "$testDir/large_100m.tar.gz")
+    environment("LARGE_100M_ZIP_PATH", "$testDir/large_100m.zip")
+
+    // Pass environment variables to the iOS Simulator test runner
+    environment("SIMCTL_CHILD_LARGE_7Z_PATH", "$testDir/large.7z")
+    environment("SIMCTL_CHILD_LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
+    environment("SIMCTL_CHILD_LARGE_100M_7Z_PATH", "$testDir/large_100m.7z")
+    environment("SIMCTL_CHILD_LARGE_100M_TARGZ_PATH", "$testDir/large_100m.tar.gz")
+    environment("SIMCTL_CHILD_LARGE_100M_ZIP_PATH", "$testDir/large_100m.zip")
 }
