@@ -59,7 +59,25 @@ if(UNIX)
 endif()
 
 # Define the target library
-if(IOS)
+if(EMSCRIPTEN)
+    set(CMAKE_SHARED_LIBRARY_SUFFIX ".js")
+    add_library(kioarch SHARED
+        kioarch_ios.c
+        "${MINIZ_DIR}/miniz.c"
+        "${MINIZ_DIR}/miniz_tdef.c"
+        "${MINIZ_DIR}/miniz_tinfl.c"
+        "${MINIZ_DIR}/miniz_zip.c"
+        ${7ZIP_SOURCES}
+    )
+    target_link_options(kioarch PRIVATE
+        "-s" "EXPORTED_FUNCTIONS=['_kio_open_archive','_kio_close_archive','_kio_get_entry_count','_kio_get_entry','_kio_extract_entry','_malloc','_free']"
+        "-s" "EXPORTED_RUNTIME_METHODS=['cwrap','ccall','addFunction','removeFunction','HEAP8']"
+        "-s" "ALLOW_TABLE_GROWTH=1"
+        "-s" "MODULARIZE=1"
+        "-s" "EXPORT_NAME='createKioArchModule'"
+        "-s" "SINGLE_FILE=0"
+    )
+elseif(IOS)
     # Disable code signing for iOS builds on CI/Simulator
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO")
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "")
@@ -89,7 +107,7 @@ else()
 endif()
 
 # Link libraries
-if(NOT ANDROID AND NOT IOS)
+if(NOT ANDROID AND NOT IOS AND NOT EMSCRIPTEN)
     target_link_libraries(kioarch ${JNI_LIBRARIES})
 endif()
 
