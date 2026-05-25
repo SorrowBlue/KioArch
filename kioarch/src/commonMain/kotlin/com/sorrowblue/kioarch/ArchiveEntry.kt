@@ -17,6 +17,8 @@
 package com.sorrowblue.kioarch
 
 import kotlinx.io.Sink
+import kotlinx.io.Buffer
+import kotlinx.io.readByteArray
 
 public data class ArchiveEntry(
     val index: Int,
@@ -35,4 +37,16 @@ public data class ArchiveEntry(
  */
 public fun ArchiveEntry.extract(reader: ArchiveReader, sink: Sink) {
     reader.extractEntry(this, sink)
+}
+
+/**
+ * Extracts the content of this entry and returns it as a [ByteArray].
+ *
+ * @param reader the [ArchiveReader] that contains this entry
+ * @return the extracted content as a [ByteArray]
+ */
+public fun ArchiveEntry.extractToByteArray(reader: ArchiveReader): ByteArray {
+    val buffer = Buffer()
+    reader.extractEntry(this, buffer)
+    return buffer.readByteArray()
 }

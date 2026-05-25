@@ -21,8 +21,41 @@ import kotlinx.cinterop.*
 import kotlinx.io.files.Path
 import kotlinx.io.Sink
 import platform.posix.*
-import platform.Foundation.NSLock
+import platform.Foundation.*
 import com.sorrowblue.kioarch.internal.cinterop.*
+
+@OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+private fun decodeCName(cPointer: CPointer<ByteVar>?): String {
+    if (cPointer == null) return ""
+    
+    // Calculate length of C string safely without POSIX strlen type issues
+    var len = 0uL
+    while (cPointer[len.toInt()] != 0.toByte()) {
+        len++
+    }
+    if (len == 0uL) return ""
+    
+    // 1. Try UTF-8
+    val nsStringUtf8 = NSString.create(bytes = cPointer, length = len, encoding = NSUTF8StringEncoding)
+    if (nsStringUtf8 != null) {
+        return nsStringUtf8 as String
+    }
+    
+    // 2. Try Windows-31J / Shift_JIS (0x80000A01uL)
+    val nsStringSjis = NSString.create(bytes = cPointer, length = len, encoding = 0x80000A01uL)
+    if (nsStringSjis != null) {
+        return nsStringSjis as String
+    }
+    
+    // 3. Try Standard Shift_JIS
+    val nsStringStdSjis = NSString.create(bytes = cPointer, length = len, encoding = NSShiftJISStringEncoding)
+    if (nsStringStdSjis != null) {
+        return nsStringStdSjis as String
+    }
+    
+    // Fallback
+    return cPointer.toKString()
+}
 
 private inline fun <T> NSLock.withLock(action: () -> T): T {
     this.lock()
@@ -102,7 +135,7 @@ private class IosArchiveReader(
             for (i in 0 until count) {
                 if (kio_get_entry(handle.toULong(), i, entry.ptr) != 0) {
                     val cName = entry.name
-                    val nameStr = cName?.toKString() ?: ""
+                    val nameStr = decodeCName(cName)
                     val normalizedName = nameStr.replace('\\', '/')
                     list.add(
                         ArchiveEntry(
