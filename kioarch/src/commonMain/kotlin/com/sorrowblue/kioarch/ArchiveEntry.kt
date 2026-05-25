@@ -14,8 +14,11 @@
  * limitations under the License.
  */
 
+@file:OptIn(kotlin.experimental.ExperimentalObjCName::class)
+
 package com.sorrowblue.kioarch
 
+import kotlin.native.ObjCName
 import kotlinx.io.Sink
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
@@ -35,6 +38,7 @@ public data class ArchiveEntry(
  * @param reader the [ArchiveReader] that contains this entry
  * @param sink the [Sink] to write the extracted content to
  */
+@ObjCName(name = "extract", swiftName = "extract")
 public fun ArchiveEntry.extract(reader: ArchiveReader, sink: Sink) {
     reader.extractEntry(this, sink)
 }
@@ -45,6 +49,7 @@ public fun ArchiveEntry.extract(reader: ArchiveReader, sink: Sink) {
  * @param reader the [ArchiveReader] that contains this entry
  * @return the extracted content as a [ByteArray]
  */
+@ObjCName(name = "extractToByteArray", swiftName = "extractToByteArray")
 public fun ArchiveEntry.extractToByteArray(reader: ArchiveReader): ByteArray {
     val buffer = Buffer()
     reader.extractEntry(this, buffer)

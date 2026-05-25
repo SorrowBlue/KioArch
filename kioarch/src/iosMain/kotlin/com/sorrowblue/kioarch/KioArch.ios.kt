@@ -116,6 +116,120 @@ private class IosPathSeekableSource(pathStr: String) : SeekableSource {
     }
 }
 
+private class IosNSDataSeekableSource(private val nsData: NSData) : SeekableSource {
+    private val lock = NSLock()
+    private var pos = 0L
+    private var isClosed = false
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = lock.withLock {
+        if (isClosed) return -1
+        val totalLength = nsData.length.toLong()
+        if (pos >= totalLength) return -1
+        val available = totalLength - pos
+        val toRead = if (length > available) available.toInt() else length
+        if (toRead <= 0) return -1
+
+        buffer.usePinned { pinned ->
+            val rawPtr = nsData.bytes?.reinterpret<ByteVar>() ?: return@withLock -1
+            val src = rawPtr + pos
+            memcpy(pinned.addressOf(offset), src, toRead.toULong())
+        }
+        pos += toRead
+        toRead
+    }
+
+    override fun seek(position: Long) {
+        lock.withLock {
+            if (isClosed) return
+            val totalLength = nsData.length.toLong()
+            pos = if (position < 0) {
+                0L
+            } else if (position > totalLength) {
+                totalLength
+            } else {
+                position
+            }
+        }
+    }
+
+    override fun position(): Long = lock.withLock {
+        if (isClosed) 0L else pos
+    }
+
+    override fun length(): Long = lock.withLock {
+        if (isClosed) 0L else nsData.length.toLong()
+    }
+
+    override fun close() {
+        lock.withLock {
+            isClosed = true
+        }
+    }
+}
+
+private class IosNSURLSeekableSource(private val nsUrl: NSURL) : SeekableSource {
+    private val delegate: IosPathSeekableSource
+
+    init {
+        val path = nsUrl.path ?: throw ArchiveIOException("URL path is null: $nsUrl")
+        delegate = IosPathSeekableSource(path)
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = delegate.read(buffer, offset, length)
+    override fun seek(position: Long) = delegate.seek(position)
+    override fun position(): Long = delegate.position()
+    override fun length(): Long = delegate.length()
+    override fun close() = delegate.close()
+}
+
+private class IosNSFileHandleSeekableSource(private val fileHandle: NSFileHandle) : SeekableSource {
+    private val lock = NSLock()
+    private var isClosed = false
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = lock.withLock {
+        if (isClosed) return -1
+        val data = fileHandle.readDataUpToLength(length.toULong(), null) ?: return -1
+        if (data.length == 0uL) return -1
+
+        data.bytes?.let { bytesPtr ->
+            buffer.usePinned { pinned ->
+                memcpy(pinned.addressOf(offset), bytesPtr, data.length)
+            }
+        }
+        data.length.toInt()
+    }
+
+    override fun seek(position: Long) {
+        lock.withLock {
+            if (isClosed) return
+            fileHandle.seekToOffset(position.toULong(), null)
+        }
+    }
+
+    override fun position(): Long = lock.withLock {
+        if (isClosed) 0L else fileHandle.offsetInFile.toLong()
+    }
+
+    override fun length(): Long = lock.withLock {
+        if (isClosed) 0L else {
+            val current = fileHandle.offsetInFile
+            fileHandle.seekToEndOfFile()
+            val len = fileHandle.offsetInFile.toLong()
+            fileHandle.seekToOffset(current, null)
+            len
+        }
+    }
+
+    override fun close() {
+        lock.withLock {
+            if (!isClosed) {
+                fileHandle.closeFile()
+                isClosed = true
+            }
+        }
+    }
+}
+
 private class IosArchiveReader(
     private val sourceStableRef: StableRef<SeekableSource>,
     private val handle: Long
@@ -287,4 +401,38 @@ public actual object KioArch {
     public actual fun createReader(path: Path): ArchiveReader {
         return createReader(IosPathSeekableSource(path.toString()))
     }
+
+    /**
+     * Creates an [ArchiveReader] from an in-memory [NSData] for iOS.
+     *
+     * @param nsData the [NSData] containing the archive data
+     * @return an [ArchiveReader] to read the archive
+     * @throws ArchiveException if native library fails to open the archive
+     */
+    public fun createReader(nsData: NSData): ArchiveReader {
+        return createReader(IosNSDataSeekableSource(nsData))
+    }
+
+    /**
+     * Creates an [ArchiveReader] from an [NSURL] for iOS.
+     *
+     * @param nsUrl the [NSURL] pointing to the archive file
+     * @return an [ArchiveReader] to read the archive
+     * @throws ArchiveException if native library fails to open the archive
+     */
+    public fun createReader(nsUrl: NSURL): ArchiveReader {
+        return createReader(IosNSURLSeekableSource(nsUrl))
+    }
+
+    /**
+     * Creates an [ArchiveReader] from an [NSFileHandle] for iOS.
+     *
+     * @param fileHandle the [NSFileHandle] to read the archive from
+     * @return an [ArchiveReader] to read the archive
+     * @throws ArchiveException if native library fails to open the archive
+     */
+    public fun createReader(fileHandle: NSFileHandle): ArchiveReader {
+        return createReader(IosNSFileHandleSeekableSource(fileHandle))
+    }
 }
+
