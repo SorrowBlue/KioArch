@@ -2,5 +2,62 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "prHourlyLimit": 0,
+  "labels": [
+    "type: :dependabot:dependencies",
+    ":robot:renovate"
+  ],
+  "dependencyDashboardLabels": [
+    ":robot:renovate"
+  ],
+  "packageRules": [
+    {
+      "groupName": "Android Gradle Plugin",
+      "groupSlug": "android_gradle_plugin",
+      "matchPackageNames": [
+        "com.android.{/,}**",
+        "!com.android.billingclient{/,}**"
+      ]
+    },
+    {
+      "groupName": "Kotlin",
+      "groupSlug": "kotlin",
+      "matchPackageNames": [
+        "org.jetbrains.kotlin:{/,}**",
+        "org.jetbrains.kotlin.{/,}**",
+        "com.google.devtools.ksp{/,}**"
+      ]
+    },
+    {
+      "groupName": "androidx.compose",
+      "groupSlug": "androidx_compose",
+      "matchPackageNames": [
+        "androidx.compose{/,}**",
+        "org.jetbrains.compose{/,}**"
+      ]
+    },
+    {
+      "groupName": "kotlinx.kover",
+      "groupSlug": "kotlinx_kover",
+      "matchPackageNames": [
+        "org.jetbrains.kotlinx.kover{/,}**"
+      ]
+    },
+    {
+      "groupName": "androidx.test",
+      "groupSlug": "androidx_test",
+      "matchPackageNames": [
+        "androidx.test{/,}**"
+      ]
+    },
+    {
+      "groupName": "detekt",
+      "groupSlug": "detekt",
+      "matchPackageNames": [
+        "dev.detekt{/,}**",
+        "io.nlopez.compose.rules{/,}**"
+      ]
+    }
   ]
 }
