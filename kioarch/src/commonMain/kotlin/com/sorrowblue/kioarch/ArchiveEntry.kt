@@ -19,8 +19,8 @@
 package com.sorrowblue.kioarch
 
 import kotlin.native.ObjCName
-import kotlinx.io.Sink
 import kotlinx.io.Buffer
+import kotlinx.io.Sink
 import kotlinx.io.readByteArray
 
 public data class ArchiveEntry(

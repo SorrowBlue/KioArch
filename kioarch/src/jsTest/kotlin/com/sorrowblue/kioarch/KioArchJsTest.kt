@@ -183,4 +183,37 @@ class KioArchJsTest {
             null
         }
     }
+
+    @Test
+    fun testNodeJsPathReader(): kotlin.js.Promise<kotlin.js.JsAny?> {
+        return loadModuleIfNeeded().then {
+            val envPath = js("process.env['TEST_ZIP_PATH']") as? String
+                ?: throw IllegalStateException("TEST_ZIP_PATH not set")
+            KioArch.createReader(kotlinx.io.files.Path(envPath)).use { reader ->
+                val entries = reader.getEntries()
+                assertTrue(entries.isNotEmpty())
+                assertEquals(2, entries.size)
+            }
+            null
+        }
+    }
+
+    @Test
+    fun testExceptionSafetyInCallbacks(): kotlin.js.Promise<kotlin.js.JsAny?> {
+        return loadModuleIfNeeded().then {
+            val badSource = object : SeekableSource {
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    throw RuntimeException("Simulated read exception")
+                }
+                override fun seek(position: Long) {}
+                override fun position(): Long = 0L
+                override fun length(): Long = 100L
+                override fun close() {}
+            }
+            assertFailsWith<ArchiveIOException> {
+                KioArch.createReader(badSource)
+            }
+            null
+        }
+    }
 }

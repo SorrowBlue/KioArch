@@ -68,35 +68,55 @@ private fun wasmUtf8ToString(wasm: dynamic, namePtr: Int): String {
 
 private fun bridgeRead(wasm: dynamic, source: Any, bufPtr: Int, len: Int): Int {
     val innerSource = source as? SeekableSource ?: return -1
-    val tmpArray = ByteArray(len)
-    val bytesRead = innerSource.read(tmpArray, 0, len)
-    if (bytesRead > 0) {
-        val jsArray = tmpArray.asDynamic() as org.khronos.webgl.Int8Array
-        val view = org.khronos.webgl.Uint8Array(jsArray.buffer, jsArray.byteOffset, bytesRead)
-        wasm.HEAPU8.set(view, bufPtr)
+    return try {
+        val tmpArray = ByteArray(len)
+        val bytesRead = innerSource.read(tmpArray, 0, len)
+        if (bytesRead > 0) {
+            val jsArray = tmpArray.asDynamic() as org.khronos.webgl.Int8Array
+            val view = org.khronos.webgl.Uint8Array(jsArray.buffer, jsArray.byteOffset, bytesRead)
+            wasm.HEAPU8.set(view, bufPtr)
+        }
+        bytesRead
+    } catch (e: Throwable) {
+        -1
     }
-    return bytesRead
 }
 
 private fun bridgeSeek(source: Any, pos: Double) {
-    (source as? SeekableSource)?.seek(pos.toLong())
+    try {
+        (source as? SeekableSource)?.seek(pos.toLong())
+    } catch (e: Throwable) {
+        // Safe guard to prevent throwing into C++ Wasm boundary
+    }
 }
 
 private fun bridgePosition(source: Any): Double {
-    return (source as? SeekableSource)?.position()?.toDouble() ?: 0.0
+    return try {
+        (source as? SeekableSource)?.position()?.toDouble() ?: 0.0
+    } catch (e: Throwable) {
+        0.0
+    }
 }
 
 private fun bridgeLength(source: Any): Double {
-    return (source as? SeekableSource)?.length()?.toDouble() ?: 0.0
+    return try {
+        (source as? SeekableSource)?.length()?.toDouble() ?: 0.0
+    } catch (e: Throwable) {
+        0.0
+    }
 }
 
 private fun bridgeWrite(wasm: dynamic, sink: Any, bufPtr: Int, len: Int) {
     val innerSink = sink as? Sink ?: return
-    val tmpArray = ByteArray(len)
-    val jsArray = tmpArray.asDynamic() as org.khronos.webgl.Int8Array
-    val view = org.khronos.webgl.Int8Array(wasm.HEAPU8.buffer as org.khronos.webgl.ArrayBuffer, bufPtr, len)
-    jsArray.set(view)
-    innerSink.write(tmpArray, 0, len)
+    try {
+        val tmpArray = ByteArray(len)
+        val jsArray = tmpArray.asDynamic() as org.khronos.webgl.Int8Array
+        val view = org.khronos.webgl.Int8Array(wasm.HEAPU8.buffer as org.khronos.webgl.ArrayBuffer, bufPtr, len)
+        jsArray.set(view)
+        innerSink.write(tmpArray, 0, len)
+    } catch (e: Throwable) {
+        // Safe guard to prevent throwing into C++ Wasm boundary
+    }
 }
 
 /**
@@ -240,7 +260,56 @@ public actual object KioArch {
      * @throws ArchiveException if native library fails to open the archive
      */
     public actual fun createReader(path: Path): ArchiveReader {
+        if (isNodeJs()) {
+            return createReader(NodeFileSeekableSource(path.toString()))
+        }
         throw UnsupportedOperationException("File system access using Path is not supported in browser JS environment. Use ByteArray or custom SeekableSource.")
+    }
+}
+
+private fun isNodeJs(): Boolean {
+    return js("typeof process !== 'undefined' && process.versions != null && process.versions.node != null") as Boolean
+}
+
+private class NodeFileSeekableSource(private val pathStr: String) : SeekableSource {
+    private val fs: dynamic = js("require('fs')")
+    private val fd: Int
+    private var pos: Long = 0L
+    private val totalLength: Long
+
+    init {
+        fd = fs.openSync(pathStr, "r") as Int
+        val stats = fs.fstatSync(fd)
+        totalLength = (stats.size as Double).toLong()
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (pos >= totalLength) return -1
+        val bytesToRead = minOf(length.toLong(), totalLength - pos).toInt()
+        if (bytesToRead <= 0) return 0
+
+        val jsBuffer = if (js("typeof Buffer.alloc === 'function'") as Boolean) js("Buffer.alloc(bytesToRead)") else js("new Buffer(bytesToRead)")
+        val readBytes = fs.readSync(fd, jsBuffer, 0, bytesToRead, pos.toDouble()) as Int
+        if (readBytes <= 0) return -1
+
+        val kotlinArray = buffer.asDynamic() as org.khronos.webgl.Int8Array
+        val view = org.khronos.webgl.Int8Array(jsBuffer.buffer as org.khronos.webgl.ArrayBuffer, jsBuffer.byteOffset as Int, readBytes)
+        kotlinArray.set(view, offset)
+
+        pos += readBytes
+        return readBytes
+    }
+
+    override fun seek(position: Long) {
+        pos = maxOf(0L, minOf(position, totalLength))
+    }
+
+    override fun position(): Long = pos
+
+    override fun length(): Long = totalLength
+
+    override fun close() {
+        fs.closeSync(fd)
     }
 }
 
