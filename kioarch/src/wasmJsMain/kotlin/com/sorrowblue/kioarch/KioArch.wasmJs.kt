@@ -198,6 +198,35 @@ private external fun toBigInt(rawHandle: JsAny): JsAny
 @JsFun("(bigIntVal) => bigIntVal === 0n")
 private external fun isZeroBigInt(bigIntVal: JsAny): Boolean
 
+@JsFun("() => typeof process !== 'undefined' && process.versions != null && process.versions.node != null")
+private external fun isNodeJsWasm(): Boolean
+
+@JsFun("() => { if (!globalThis.kioarchFs) { globalThis.kioarchFs = typeof require !== 'undefined' ? require('fs') : null; } }")
+private external fun initNodeFs()
+
+@JsFun("(pathStr) => { if (!globalThis.kioarchFs) return -1; return globalThis.kioarchFs.openSync(pathStr, 'r'); }")
+private external fun nodeOpenSync(pathStr: String): Int
+
+@JsFun("(fd) => { if (!globalThis.kioarchFs) return 0.0; return Number(globalThis.kioarchFs.fstatSync(fd).size); }")
+private external fun nodeSizeSync(fd: Int): Double
+
+@JsFun(
+    """(fd, bufPtr, bytesToRead, pos, module, copyFn) => {
+        if (!globalThis.kioarchFs) return -1;
+        var jsBuffer = typeof Buffer !== 'undefined' && typeof Buffer.alloc === 'function' ? Buffer.alloc(bytesToRead) : new Uint8Array(bytesToRead);
+        var readBytes = globalThis.kioarchFs.readSync(fd, jsBuffer, 0, bytesToRead, pos);
+        if (readBytes <= 0) return readBytes;
+        for (var i = 0; i < readBytes; i++) {
+            copyFn(i, jsBuffer[i]);
+        }
+        return readBytes;
+    }"""
+)
+private external fun nodeReadSync(fd: Int, bufPtr: Int, bytesToRead: Int, pos: Double, module: JsAny, copyFn: (Int, Byte) -> Unit): Int
+
+@JsFun("(fd) => { if (globalThis.kioarchFs) globalThis.kioarchFs.closeSync(fd); }")
+private external fun nodeCloseSync(fd: Int)
+
 // Global map to track active Kotlin objects passed to C callbacks for Wasm
 private val opaqueMap = mutableMapOf<Int, Any>()
 private var nextOpaqueId = 1
@@ -258,25 +287,41 @@ public actual object KioArch {
                     if (innerSource == null) {
                         -1
                     } else {
-                        val tmpArray = ByteArray(len)
-                        val readBytes = innerSource.read(tmpArray, 0, len)
-                        if (readBytes > 0) {
-                            copyToHeap(module, bufPtr, tmpArray, readBytes)
+                        try {
+                            val tmpArray = ByteArray(len)
+                            val readBytes = innerSource.read(tmpArray, 0, len)
+                            if (readBytes > 0) {
+                                copyToHeap(module, bufPtr, tmpArray, readBytes)
+                            }
+                            readBytes
+                        } catch (e: Throwable) {
+                            -1
                         }
-                        readBytes
                     }
                 },
                 seekFn = { pos ->
-                    val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                    innerSource?.seek(pos.toLong())
+                    try {
+                        val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
+                        innerSource?.seek(pos.toLong())
+                    } catch (e: Throwable) {
+                        // Safe guard to prevent throwing into C++ Wasm boundary
+                    }
                 },
                 posFn = {
-                    val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                    innerSource?.position()?.toDouble() ?: 0.0
+                    try {
+                        val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
+                        innerSource?.position()?.toDouble() ?: 0.0
+                    } catch (e: Throwable) {
+                        0.0
+                    }
                 },
                 lenFn = {
-                    val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                    innerSource?.length()?.toDouble() ?: 0.0
+                    try {
+                        val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
+                        innerSource?.length()?.toDouble() ?: 0.0
+                    } catch (e: Throwable) {
+                        0.0
+                    }
                 }
             )
 
@@ -317,7 +362,7 @@ public actual object KioArch {
                 seekFuncPtr,
                 posFuncPtr,
                 lenFuncPtr,
-                handle!!
+                handle
             )
         } catch (e: Exception) {
             // Clean up resources on failure
@@ -351,7 +396,57 @@ public actual object KioArch {
      * @throws ArchiveException if native library fails to open the archive
      */
     public actual fun createReader(path: Path): ArchiveReader {
+        if (isNodeJsWasm()) {
+            val module = wasmModule ?: throw IllegalStateException("KioArch has not been initialized. Call KioArch.initialize(module) first.")
+            return createReader(NodeFileSeekableSource(path.toString(), module))
+        }
         throw UnsupportedOperationException("File system access using Path is not supported in browser WasmJs environment. Use ByteArray or custom SeekableSource.")
+    }
+}
+
+private class NodeFileSeekableSource(private val pathStr: String, private val module: JsAny) : SeekableSource {
+    private val fd: Int
+    private var pos: Long = 0L
+    private val totalLength: Long
+
+    init {
+        initNodeFs()
+        fd = nodeOpenSync(pathStr)
+        if (fd < 0) throw ArchiveIOException("Failed to open file: $pathStr")
+        totalLength = nodeSizeSync(fd).toLong()
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (pos >= totalLength) return -1
+        val bytesToRead = minOf(length.toLong(), totalLength - pos).toInt()
+        if (bytesToRead <= 0) return 0
+
+        val readBytes = nodeReadSync(
+            fd,
+            0,
+            bytesToRead,
+            pos.toDouble(),
+            module,
+            copyFn = { i, value ->
+                buffer[offset + i] = value
+            }
+        )
+        if (readBytes > 0) {
+            pos += readBytes
+        }
+        return readBytes
+    }
+
+    override fun seek(position: Long) {
+        pos = maxOf(0L, minOf(position, totalLength))
+    }
+
+    override fun position(): Long = pos
+
+    override fun length(): Long = totalLength
+
+    override fun close() {
+        nodeCloseSync(fd)
     }
 }
 
@@ -424,9 +519,13 @@ private class WasmArchiveReader(
                 writeFn = { bufPtr, len ->
                     val innerSink = getOpaque(sinkOpaqueId) as? Sink
                     if (innerSink != null) {
-                        val tmpArray = ByteArray(len)
-                        copyFromHeap(module, bufPtr, tmpArray, len)
-                        innerSink.write(tmpArray, 0, len)
+                        try {
+                            val tmpArray = ByteArray(len)
+                            copyFromHeap(module, bufPtr, tmpArray, len)
+                            innerSink.write(tmpArray, 0, len)
+                        } catch (e: Throwable) {
+                            // Safe guard to prevent throwing into C++ Wasm boundary
+                        }
                     }
                 }
             )
@@ -481,5 +580,5 @@ private class WasmArchiveReader(
 }
 
 // Inline helper extension to cast JS reference safely in Kotlin/Wasm
-@Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
+@Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE", "UNCHECKED_CAST")
 private fun <T : JsAny> Any.cast(): T = this as T

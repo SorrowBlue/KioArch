@@ -57,3 +57,19 @@ public fun readTestFile(envVarName: String): ByteArray {
     }
     return byteArray
 }
+
+@JsFun(
+    """(env, name) => {
+        return env[name] || "";
+    }"""
+)
+private external fun getEnvValueJs(env: JsAny, name: String): String
+
+public fun getTestFilePath(envVarName: String): String {
+    val env = getProcessEnvJs() ?: throw IllegalStateException("Node.js process environment is unavailable")
+    val path = getEnvValueJs(env, envVarName)
+    if (path.isEmpty()) {
+        throw IllegalStateException("Environment variable $envVarName not set in Node.js process")
+    }
+    return path
+}
