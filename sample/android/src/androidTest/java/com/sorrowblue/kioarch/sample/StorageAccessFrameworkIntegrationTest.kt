@@ -41,6 +41,10 @@ class StorageAccessFrameworkIntegrationTest {
 
     @Before
     fun setUp() {
+        // Ensure the device is awake and keyguard is dismissed prior to running tests
+        device.wakeUp()
+        instrumentation.uiAutomation.executeShellCommand("wm dismiss-keyguard")
+
         // Prepare a valid, mock ZIP file inside Android's shared Downloads directory.
         createdFileUri = createTestZipInDownloads(context, testFilename)
         assertNotNull("Failed to create test ZIP file in Downloads directory", createdFileUri)
@@ -58,8 +62,11 @@ class StorageAccessFrameworkIntegrationTest {
     fun testArchiveImportViaStorageAccessFramework() {
         // Start the activity via ActivityScenario to avoid Espresso idling resource lookup.
         ActivityScenario.launch(MainActivity::class.java).use {
+            // Wait for Compose UI to settle and finish initial layout pass
+            device.waitForIdle()
+
             // 1. Initial State Check: Click the "Choose Archive File" button using our robust retry helper.
-            clickWithRetry(device, By.text("Choose Archive File"))
+            clickWithRetry(device, By.desc("Choose Archive File"))
 
             // 2. Wait for the native Storage Access Framework (DocumentsUI) picker to populate.
             val safPackagePattern = Pattern.compile("com\\.(google\\.)?android\\.documentsui")
