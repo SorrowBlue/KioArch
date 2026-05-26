@@ -3,13 +3,12 @@
   "extends": [
     "config:recommended"
   ],
-  "prHourlyLimit": 0,
   "labels": [
-    "type: :dependabot:dependencies",
-    ":robot:renovate"
+    ":arrow_up: dependencies",
+    ":robot: renovate"
   ],
   "dependencyDashboardLabels": [
-    ":robot:renovate"
+    ":robot: renovate"
   ],
   "packageRules": [
     {

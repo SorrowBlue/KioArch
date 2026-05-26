@@ -26,6 +26,10 @@
   color: "0366d6"
   description: "Dependency updates."
 
+- name: ":robot: renovate"
+  color: "143c8c"
+  description: "Created by Renovate"
+
 - name: "major"
   color: "d73a4a"
   description: "Incompatible API changes or breaking changes that require manual migration."
