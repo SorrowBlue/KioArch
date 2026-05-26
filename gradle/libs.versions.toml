@@ -21,7 +21,7 @@ xz = "1.9"
 androidxTestRunner = "1.6.1"
 androidxTestExtJunit = "1.2.1"
 uiautomator = "2.3.0"
-androidxEspresso = "3.6.1"
+androidxEspresso = "3.7.0"
 
 
 [libraries]
