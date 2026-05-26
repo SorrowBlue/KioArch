@@ -19,10 +19,14 @@ jobs:
         with:
           github-api-token: ${{ secrets.GITHUB_TOKEN }}
           cmake-version: '4.1.2'
+      - name: Setup Emscripten (emsdk)
+        uses: mymindstorm/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+        with:
+          version: '5.0.7'
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: Run Unit Tests
-        run: ./gradlew jvmTest testAndroidHostTest --continue
+        run: ./gradlew jvmTest testAndroidHostTest jsNodeTest wasmJsTest wasmJsNodeTest --continue
       - name: Upload Test Report
         if: cancelled() != true
         uses: dorny/test-reporter@v3

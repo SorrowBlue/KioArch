@@ -1,4 +1,6 @@
 import TargetOs.Companion.currentOs
+import java.io.File
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
 
 plugins {
@@ -29,6 +31,21 @@ kotlin {
     }
 
     jvm()
+
+    js {
+        nodejs()
+        compilerOptions {
+            freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
+        }
+    }
+
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs {
+        nodejs()
+        compilerOptions {
+            freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
+        }
+    }
 
     val xcf = XCFramework("KioArch")
     val iosTargets = listOf(iosX64(), iosArm64(), iosSimulatorArm64())
@@ -88,6 +105,12 @@ kotlin {
                 implementation(libs.androidx.startup)
             }
         }
+        jsMain {
+            resources.srcDir(layout.buildDirectory.dir("generated/wasm"))
+        }
+        wasmJsMain {
+            resources.srcDir(layout.buildDirectory.dir("generated/wasm"))
+        }
         val androidHostTest by getting {
         }
         val androidDeviceTest by getting {
@@ -114,6 +137,33 @@ val compileJvmNatives by tasks.registering(CompileJvmNativesTask::class) {
 
 tasks.named("jvmProcessResources") {
     dependsOn(compileJvmNatives)
+}
+
+val compileWasmNatives by tasks.registering(CompileWasmNativesTask::class) {
+    group = "build"
+    description = "Compiles native libraries for JS/Wasm using Emscripten"
+    cppSourceDir = layout.projectDirectory.dir("src/cpp")
+    outputDir = layout.buildDirectory.dir("generated/wasm/natives/")
+
+    val localProperties = Properties().apply {
+        val file = project.rootProject.file("local.properties")
+        if (file.exists()) {
+            file.inputStream().use { load(it) }
+        }
+    }
+    val emsdkPath = localProperties.getProperty("emsdk.dir")
+        ?: project.findProperty("emsdk.dir") as? String
+    if (emsdkPath != null) {
+        emsdkDir.set(emsdkPath)
+    }
+}
+
+tasks.named("jsProcessResources") {
+    dependsOn(compileWasmNatives)
+}
+
+tasks.named("wasmJsProcessResources") {
+    dependsOn(compileWasmNatives)
 }
 
 val compileIosNatives by tasks.registering(CompileIosNativesTask::class) {
@@ -331,4 +381,15 @@ tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest
     environment("SIMCTL_CHILD_LARGE_100M_7Z_PATH", "$testDir/large_100m.7z")
     environment("SIMCTL_CHILD_LARGE_100M_TARGZ_PATH", "$testDir/large_100m.tar.gz")
     environment("SIMCTL_CHILD_LARGE_100M_ZIP_PATH", "$testDir/large_100m.zip")
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest>().configureEach {
+    dependsOn(generateLargeTestFiles)
+    val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
+    environment("LARGE_7Z_PATH", "$testDir/large.7z")
+    environment("LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
+    environment("TEST_7Z_PATH", "$testDir/test.7z")
+    environment("TEST_ZIP_PATH", "$testDir/test.zip")
+    environment("TEST_SJIS_ZIP_PATH", "$testDir/test_sjis.zip")
+    environment("TEST_PATH_NORMAL_ZIP_PATH", "$testDir/test_path_normal.zip")
 }

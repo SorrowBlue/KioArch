@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 project(kioarch C)
 
 # Find JNI (Only for JVM/Desktop build, Android NDK provides JNI headers automatically)
-if(NOT ANDROID AND NOT IOS)
+if(NOT ANDROID AND NOT IOS AND NOT EMSCRIPTEN)
     find_package(JNI REQUIRED)
 endif()
 
@@ -16,7 +16,7 @@ include_directories(
     ${MINIZ_DIR}
 )
 
-if(NOT ANDROID AND NOT IOS)
+if(NOT ANDROID AND NOT IOS AND NOT EMSCRIPTEN)
     include_directories(${JNI_INCLUDE_DIRS})
 endif()
 
@@ -59,7 +59,25 @@ if(UNIX)
 endif()
 
 # Define the target library
-if(IOS)
+if(EMSCRIPTEN)
+    add_executable(kioarch
+        kioarch_ios.c
+        "${MINIZ_DIR}/miniz.c"
+        "${MINIZ_DIR}/miniz_tdef.c"
+        "${MINIZ_DIR}/miniz_tinfl.c"
+        "${MINIZ_DIR}/miniz_zip.c"
+        ${7ZIP_SOURCES}
+    )
+    target_link_options(kioarch PRIVATE
+        "-sEXPORTED_FUNCTIONS=['_kio_open_archive','_kio_open_archive_wasm','_kio_close_archive','_kio_get_entry_count','_kio_get_entry','_kio_extract_entry','_kio_extract_entry_wasm','_malloc','_free']"
+        "-sEXPORTED_RUNTIME_METHODS=['cwrap','ccall','addFunction','removeFunction','UTF8ToString','HEAP8','HEAPU8','HEAP16','HEAPU16','HEAP32','HEAPU32','HEAPF32','HEAPF64','HEAP64','HEAPU64']"
+        "-sALLOW_TABLE_GROWTH=1"
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sMODULARIZE=1"
+        "-sEXPORT_NAME='createKioArchModule'"
+        "-sSINGLE_FILE=0"
+    )
+elseif(IOS)
     # Disable code signing for iOS builds on CI/Simulator
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO")
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "")
@@ -89,7 +107,7 @@ else()
 endif()
 
 # Link libraries
-if(NOT ANDROID AND NOT IOS)
+if(NOT ANDROID AND NOT IOS AND NOT EMSCRIPTEN)
     target_link_libraries(kioarch ${JNI_LIBRARIES})
 endif()
 
