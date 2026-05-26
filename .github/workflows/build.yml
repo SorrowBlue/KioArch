@@ -104,10 +104,37 @@ jobs:
           path: kioarch/build/generated/natives/
           merge-multiple: true
       - name: Run publishToMavenLocal
-        run: ./gradlew publishJvmPublicationToMavenLocal -x compileJvmNatives
+        run: ./gradlew publishJvmPublicationToMavenLocal publishJsPublicationToMavenLocal publishWasmJsPublicationToMavenLocal -x compileJvmNatives
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: jvm-allplatform
+          path: ~/.m2/repository/
+          retention-days: 1
+
+  js-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
+        with:
+          github-api-token: ${{ secrets.GITHUB_TOKEN }}
+          cmake-version: '4.1.2'
+      - name: Setup Emscripten (emsdk)
+        uses: mymindstorm/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+        with:
+          version: '5.0.7'
+      - name: Setup Java and Gradle
+        uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
+      - name: Run publishToMavenLocal
+        run: ./gradlew publishJsPublicationToMavenLocal publishWasmJsPublicationToMavenLocal
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: js
           path: ~/.m2/repository/
           retention-days: 1

@@ -1,4 +1,6 @@
 import TargetOs.Companion.currentOs
+import java.io.File
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
 
 plugins {
@@ -32,11 +34,17 @@ kotlin {
 
     js {
         nodejs()
+        compilerOptions {
+            freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
+        }
     }
 
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
     wasmJs {
         nodejs()
+        compilerOptions {
+            freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
+        }
     }
 
     val xcf = XCFramework("KioArch")
@@ -136,6 +144,18 @@ val compileWasmNatives by tasks.registering(CompileWasmNativesTask::class) {
     description = "Compiles native libraries for JS/Wasm using Emscripten"
     cppSourceDir = layout.projectDirectory.dir("src/cpp")
     outputDir = layout.buildDirectory.dir("generated/wasm/natives/")
+
+    val localProperties = Properties().apply {
+        val file = project.rootProject.file("local.properties")
+        if (file.exists()) {
+            file.inputStream().use { load(it) }
+        }
+    }
+    val emsdkPath = localProperties.getProperty("emsdk.dir")
+        ?: project.findProperty("emsdk.dir") as? String
+    if (emsdkPath != null) {
+        emsdkDir.set(emsdkPath)
+    }
 }
 
 tasks.named("jsProcessResources") {
@@ -279,93 +299,6 @@ abstract class CompileJvmNativesTask @Inject constructor(
     }
 }
 
-abstract class CompileWasmNativesTask @Inject constructor(
-    private val fileSystemOperations: FileSystemOperations
-) : DefaultTask() {
-
-    @get:InputDirectory
-    abstract val cppSourceDir: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val outputDir: DirectoryProperty
-
-    @TaskAction
-    fun compile() {
-        val sourceDir = cppSourceDir.get().asFile
-        val buildDir = sourceDir.resolve("build_wasm")
-        
-        // Check if emcc is available in PATH
-        val isEmccAvailable = isCommandAvailable("emcc")
-        if (!isEmccAvailable) {
-            logger.warn("Emscripten (emcc) was not found in PATH. Skipping Wasm library build.")
-            return
-        }
-
-        buildDir.mkdirs()
-
-        // 1. CMake Configure with emcmake
-        val configureArgs = if (System.getProperty("os.name").lowercase().contains("windows")) {
-            listOf("cmd", "/c", "emcmake", "cmake", "-S", ".", "-B", "build_wasm")
-        } else {
-            listOf("emcmake", "cmake", "-S", ".", "-B", "build_wasm")
-        }
-
-        val process1 = ProcessBuilder(configureArgs)
-            .directory(sourceDir)
-            .redirectErrorStream(true)
-            .start()
-        val output1 = process1.inputStream.bufferedReader().readText()
-        val exitCode1 = process1.waitFor()
-        if (exitCode1 != 0) {
-            logger.error("CMake Wasm Configure Output:\n$output1")
-            throw GradleException("CMake Wasm configure failed with exit code $exitCode1. Output:\n$output1")
-        }
-
-        // 2. CMake Build with emmake / cmake
-        val buildArgs = if (System.getProperty("os.name").lowercase().contains("windows")) {
-            listOf("cmd", "/c", "cmake", "--build", "build_wasm", "--config", "Release")
-        } else {
-            listOf("cmake", "--build", "build_wasm", "--config", "Release")
-        }
-        val process2 = ProcessBuilder(buildArgs)
-            .directory(sourceDir)
-            .redirectErrorStream(true)
-            .start()
-        val output2 = process2.inputStream.bufferedReader().readText()
-        val exitCode2 = process2.waitFor()
-        if (exitCode2 != 0) {
-            logger.error("CMake Wasm Build Output:\n$output2")
-            throw GradleException("CMake Wasm build failed with exit code $exitCode2. Output:\n$output2")
-        }
-
-        // 3. Copy built Wasm and JS to output resources directory
-        val jsFile = buildDir.resolve("kioarch.js")
-        val wasmFile = buildDir.resolve("kioarch.wasm")
-        
-        fileSystemOperations.copy {
-            from(jsFile)
-            from(wasmFile)
-            into(outputDir.get())
-        }
-    }
-
-    private fun isCommandAvailable(cmd: String): Boolean {
-        return try {
-            val process = if (System.getProperty("os.name").lowercase().contains("windows")) {
-                ProcessBuilder("where", cmd)
-            } else {
-                ProcessBuilder("which", cmd)
-            }
-                .redirectErrorStream(true)
-                .start()
-            process.waitFor() == 0
-        } catch (e: Exception) {
-            false
-        }
-    }
-}
-
-
 enum class TargetOs(val osName: String, val libName: String, val output: String) {
     Windows("win", "kioarch.dll", "windows/amd64"),
     MacOS("mac", "libkioarch.dylib", "macos/universal"),
@@ -448,4 +381,15 @@ tasks.withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest
     environment("SIMCTL_CHILD_LARGE_100M_7Z_PATH", "$testDir/large_100m.7z")
     environment("SIMCTL_CHILD_LARGE_100M_TARGZ_PATH", "$testDir/large_100m.tar.gz")
     environment("SIMCTL_CHILD_LARGE_100M_ZIP_PATH", "$testDir/large_100m.zip")
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest>().configureEach {
+    dependsOn(generateLargeTestFiles)
+    val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
+    environment("LARGE_7Z_PATH", "$testDir/large.7z")
+    environment("LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
+    environment("TEST_7Z_PATH", "$testDir/test.7z")
+    environment("TEST_ZIP_PATH", "$testDir/test.zip")
+    environment("TEST_SJIS_ZIP_PATH", "$testDir/test_sjis.zip")
+    environment("TEST_PATH_NORMAL_ZIP_PATH", "$testDir/test_path_normal.zip")
 }

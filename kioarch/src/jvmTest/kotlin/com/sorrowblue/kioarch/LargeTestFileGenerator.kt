@@ -147,5 +147,86 @@ public object LargeTestFileGenerator {
         } else {
             println("large_100m.zip already exists")
         }
+
+        // test.zip (Small zip for extraction test)
+        val fileTestZip = outDir.resolve("test.zip")
+        if (!fileTestZip.exists()) {
+            println("Generating test.zip: ${fileTestZip.absolutePath}")
+            FileOutputStream(fileTestZip).use { fos ->
+                ZipOutputStream(fos).use { zos ->
+                    val content1 = "This is a dummy text file inside zip.".toByteArray()
+                    zos.putNextEntry(ZipEntry("dummy1.txt"))
+                    zos.write(content1)
+                    zos.closeEntry()
+
+                    val content2 = ByteArray(1200) { 'a'.code.toByte() }
+                    zos.putNextEntry(ZipEntry("dummy2.txt"))
+                    zos.write(content2)
+                    zos.closeEntry()
+                }
+            }
+        } else {
+            println("test.zip already exists")
+        }
+
+        // test.7z (Small 7z for extraction test)
+        val fileTest7z = outDir.resolve("test.7z")
+        if (!fileTest7z.exists()) {
+            println("Generating test.7z: ${fileTest7z.absolutePath}")
+            SevenZOutputFile(fileTest7z).use { sevenZFile ->
+                val content1 = "This is a dummy text file inside 7z.".toByteArray()
+                val entry1 = sevenZFile.createArchiveEntry(fileTest7z, "dummy1.txt")
+                entry1.size = content1.size.toLong()
+                sevenZFile.putArchiveEntry(entry1)
+                sevenZFile.write(content1)
+                sevenZFile.closeArchiveEntry()
+
+                val content2 = "Some more dummy content in the second 7z file.".toByteArray()
+                val entry2 = sevenZFile.createArchiveEntry(fileTest7z, "dummy2.txt")
+                entry2.size = content2.size.toLong()
+                sevenZFile.putArchiveEntry(entry2)
+                sevenZFile.write(content2)
+                sevenZFile.closeArchiveEntry()
+            }
+        } else {
+            println("test.7z already exists")
+        }
+
+        // test_sjis.zip (Shift_JIS filename zip)
+        val fileTestSjis = outDir.resolve("test_sjis.zip")
+        if (!fileTestSjis.exists()) {
+            println("Generating test_sjis.zip: ${fileTestSjis.absolutePath}")
+            val edgeCaseNames = listOf(
+                "テスト_日本語ファイル名_Shift_JIS.txt",
+                "dame_moji_ソ表能予.txt",
+                "half_width_ｶﾀｶﾅﾃｽﾄ.txt",
+                "cp932_extensions_①Ⅳ髙﨑.txt"
+            )
+            ZipOutputStream(
+                FileOutputStream(fileTestSjis),
+                java.nio.charset.Charset.forName("MS932")
+            ).use { zos ->
+                for (name in edgeCaseNames) {
+                    zos.putNextEntry(ZipEntry(name))
+                    zos.write("hello".toByteArray())
+                    zos.closeEntry()
+                }
+            }
+        } else {
+            println("test_sjis.zip already exists")
+        }
+
+        // test_path_normal.zip (Windows style path zip)
+        val fileTestPathNormal = outDir.resolve("test_path_normal.zip")
+        if (!fileTestPathNormal.exists()) {
+            println("Generating test_path_normal.zip: ${fileTestPathNormal.absolutePath}")
+            ZipOutputStream(FileOutputStream(fileTestPathNormal)).use { zos ->
+                zos.putNextEntry(ZipEntry("directory\\subdir\\file.txt"))
+                zos.write("hello_thread".toByteArray())
+                zos.closeEntry()
+            }
+        } else {
+            println("test_path_normal.zip already exists")
+        }
     }
 }

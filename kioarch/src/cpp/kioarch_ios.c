@@ -19,7 +19,9 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
+#ifndef __EMSCRIPTEN__
 #include <mach/mach.h>
+#endif
 
 #include "7z.h"
 #include "7zAlloc.h"
@@ -737,6 +739,9 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
 }
 
 uint64_t kio_get_resident_memory(void) {
+#ifdef __EMSCRIPTEN__
+    return 0;
+#else
     struct task_basic_info info;
     mach_msg_type_number_t size = TASK_BASIC_INFO_COUNT;
     kern_return_t kerr = task_info(mach_task_self(),
@@ -747,5 +752,22 @@ uint64_t kio_get_resident_memory(void) {
         return (uint64_t)info.resident_size;
     }
     return 0;
+#endif
 }
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+
+EMSCRIPTEN_KEEPALIVE
+uint64_t kio_open_archive_wasm(kio_source_t *source, char *err_msg, int32_t err_msg_len) {
+    if (!source) return 0;
+    return kio_open_archive(*source, err_msg, err_msg_len);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int32_t kio_extract_entry_wasm(uint64_t handle, int32_t index, kio_sink_t *sink, char *err_msg, int32_t err_msg_len) {
+    if (!sink) return 0;
+    return kio_extract_entry(handle, index, *sink, err_msg, err_msg_len);
+}
+#endif
 

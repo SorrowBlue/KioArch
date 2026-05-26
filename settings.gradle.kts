@@ -29,7 +29,7 @@ kover {
 
 @Suppress("UnstableApiUsage")
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+//    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         mavenLocal()
         google()
@@ -41,4 +41,5 @@ rootProject.name = "KioArch-root"
 include(":kioarch")
 include(":kioarch:android")
 include(":sample:android")
+include(":sample:web")
 
