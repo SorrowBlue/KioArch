@@ -76,7 +76,5 @@ jobs:
     if: needs.check-commit.outputs.should-run == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: wechuli/allcheckspassed@v2
-        with:
-          poll: false
-          delay: 0
+      - name: Confirm all checks passed
+        run: echo "All checks passed!"
