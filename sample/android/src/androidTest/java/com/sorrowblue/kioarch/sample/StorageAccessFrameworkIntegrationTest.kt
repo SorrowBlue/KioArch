@@ -102,12 +102,12 @@ class StorageAccessFrameworkIntegrationTest {
      * is encountered (e.g. if the view is in the process of rebuilding during an animation),
      * it automatically refetches the node and retries up to the given timeout.
      */
-    private fun clickWithRetry(device: UiDevice, selector: BySelector, timeoutMs: Long = 8000) {
+    private fun clickWithRetry(device: UiDevice, selector: BySelector, timeoutMs: Long = 10000) {
         var clicked = false
         val endTime = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < endTime && !clicked) {
             try {
-                val obj = device.wait(Until.findObject(selector), 1500)
+                val obj = device.wait(Until.findObject(selector), 1900)
                 if (obj != null) {
                     obj.click()
                     clicked = true
