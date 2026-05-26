@@ -72,8 +72,8 @@ dependencies {
 
 configurations.all {
     resolutionStrategy {
-        force("androidx.test.espresso:espresso-core:3.6.1")
-        force("androidx.test:runner:1.6.1")
-        force("androidx.test.ext:junit:1.2.1")
+        force("androidx.test.espresso:espresso-core:3.7.0")
+        force("androidx.test:runner:1.7.0")
+        force("androidx.test.ext:junit:1.3.0")
     }
 }
