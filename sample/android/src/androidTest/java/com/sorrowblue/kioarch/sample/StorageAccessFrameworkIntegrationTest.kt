@@ -59,6 +59,7 @@ class StorageAccessFrameworkIntegrationTest {
     }
 
     @Test
+    @Suppress("SwallowedException")
     fun testArchiveImportViaStorageAccessFramework() {
         // Start the activity via ActivityScenario to avoid Espresso idling resource lookup.
         ActivityScenario.launch(MainActivity::class.java).use {
@@ -99,7 +100,11 @@ class StorageAccessFrameworkIntegrationTest {
             // Wait for the prepared "test_ui_automator.zip" file to appear in the file list.
             // This defends against low-resource CI environments where MediaStore index registration lags.
             val isFileVisible = device.wait(Until.hasObject(By.text(testFilename)), 10000)
-            assertTrue("Prepared ZIP file '$testFilename' did not appear in Downloads folder", isFileVisible)
+            assertTrue(
+                "Prepared ZIP file '$testFilename' " +
+                    "did not appear in Downloads folder",
+                isFileVisible
+            )
 
             // 4. Find the prepared "test_ui_automator.zip" within the file list and click using retry click.
             clickWithRetry(device, By.text(testFilename))
