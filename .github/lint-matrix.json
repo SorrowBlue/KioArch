@@ -1,7 +1,7 @@
 [
   {
     "name": "Detekt",
-    "task": "reportMerge --continue",
+    "task": "reportMerge detektDebug detektDebugAndroidTest detektDebugUnitTest detektDeviceTestAndroid detektHostTestAndroid detektMain detektMainAndroid detektMainJvm detektRelease detektTest detektTestJvm --continue",
     "sarif_file": "build/reports/detekt/merge.sarif",
     "category": "detekt"
   },
