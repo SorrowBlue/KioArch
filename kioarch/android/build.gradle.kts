@@ -71,3 +71,12 @@ mavenPublishing {
         }
     }
 }
+
+// Resolve Gradle 9.x implicit dependency issue for Kover
+tasks.matching { it.name == "koverGenerateArtifact" }.configureEach {
+    dependsOn(tasks.matching { it.name == "compileReleaseKotlin" })
+    dependsOn(tasks.matching { it.name == "compileReleaseJavaWithJavac" })
+    dependsOn(tasks.matching { it.name == "compileDebugKotlin" })
+    dependsOn(tasks.matching { it.name == "compileDebugJavaWithJavac" })
+}
+
