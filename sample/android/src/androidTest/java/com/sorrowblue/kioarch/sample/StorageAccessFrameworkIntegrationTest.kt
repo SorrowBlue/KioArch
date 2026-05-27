@@ -65,32 +65,46 @@ class StorageAccessFrameworkIntegrationTest {
             // Wait for Compose UI to settle and finish initial layout pass
             device.waitForIdle()
 
-            // 1. Initial State Check: Click the "Choose Archive File" button using our robust retry helper.
-            clickWithRetry(device, By.desc("Choose Archive File"))
-
-            // 2. Wait for the native Storage Access Framework (DocumentsUI) picker to populate.
+            // 1. Initial State Check: Click "Choose Archive File" and wait for DocumentsUI picker to load,
+            // retrying the click if system lags or transiently ignores the tap.
             val safPackagePattern = Pattern.compile("com\\.(google\\.)?android\\.documentsui")
-            val isSafLoaded = device.wait(
-                Until.hasObject(By.pkg(safPackagePattern)),
-                15000
-            )
+            var isSafLoaded = false
+            val endTime = System.currentTimeMillis() + 15000
+            while (System.currentTimeMillis() < endTime && !isSafLoaded) {
+                try {
+                    clickWithRetry(device, By.desc("Choose Archive File"), 2000)
+                } catch (e: AssertionError) {
+                    // Ignore transient click failures and retry
+                }
+                isSafLoaded = device.wait(
+                    Until.hasObject(By.pkg(safPackagePattern)),
+                    2000
+                )
+            }
             assertTrue("Storage Access Framework (DocumentsUI) dialog did not load", isSafLoaded)
 
-            // Let the Document Picker settle down
-            Thread.sleep(1000)
-
-            // 3. Open the navigation drawer (Show roots / Hamburger menu) in the document picker using retry click.
+            // 2. Open the navigation drawer (Show roots / Hamburger menu) in the document picker using retry click.
             val menuPattern = Pattern.compile("(?i)Show roots|Navigate up|メニュー|戻る")
             clickWithRetry(device, By.desc(menuPattern))
 
-            // 4. Find and select the "Downloads" directory from the side roots menu list using retry click.
+            // Wait for the side roots drawer to fully slide open (i.e. Downloads item becomes visible).
+            // This replaces flake-prone Thread.sleep(1000).
             val downloadsPattern = Pattern.compile("(?i)Downloads|ダウンロード")
+            val isDrawerOpen = device.wait(Until.hasObject(By.text(downloadsPattern)), 8000)
+            assertTrue("Side navigation drawer did not open in DocumentsUI", isDrawerOpen)
+
+            // 3. Find and select the "Downloads" directory from the side roots menu list using retry click.
             clickWithRetry(device, By.text(downloadsPattern))
 
-            // 5. Find the prepared "test_ui_automator.zip" within the file list and click using retry click.
+            // Wait for the prepared "test_ui_automator.zip" file to appear in the file list.
+            // This defends against low-resource CI environments where MediaStore index registration lags.
+            val isFileVisible = device.wait(Until.hasObject(By.text(testFilename)), 10000)
+            assertTrue("Prepared ZIP file '$testFilename' did not appear in Downloads folder", isFileVisible)
+
+            // 4. Find the prepared "test_ui_automator.zip" within the file list and click using retry click.
             clickWithRetry(device, By.text(testFilename))
 
-            // 6. Verification: Wait for the sample application to process and display the archive entries.
+            // 5. Verification: Wait for the sample application to process and display the archive entries.
             // Check that the title "test_ui_automator.zip" is displayed.
             val titleNode = device.wait(Until.findObject(By.text(testFilename)), 12000)
             assertNotNull(
