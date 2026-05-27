@@ -16,8 +16,14 @@
 
 package com.sorrowblue.kioarch
 
-import kotlinx.io.files.Path
 import kotlinx.io.Sink
+import kotlinx.io.files.Path
+
+private const val SOURCE_STRUCT_SIZE = 20
+private const val ENTRY_STRUCT_SIZE = 24
+private const val SINK_STRUCT_SIZE = 8
+private const val ERR_MSG_BUFFER_SIZE = 512
+private const val ENTRY_SIZE_OFFSET = 8
 
 // Global map to track active Kotlin objects passed to C callbacks
 private val opaqueMap = mutableMapOf<Int, Any>()
@@ -42,7 +48,8 @@ internal fun releaseOpaque(id: Int) {
 private var wasmModule: dynamic = null
 
 private fun wasmUtf8ToString(wasm: dynamic, namePtr: Int): String {
-    val decoder = js("""
+    val decoder = js(
+        """
         function(wasm, namePtr) {
             var len = 0;
             while (wasm.HEAPU8[namePtr + len] !== 0) {
@@ -62,10 +69,12 @@ private fun wasmUtf8ToString(wasm: dynamic, namePtr: Int): String {
                 }
             }
         }
-    """) as (dynamic, Int) -> String
+    """
+    ) as (dynamic, Int) -> String
     return decoder(wasm, namePtr)
 }
 
+@Suppress("SwallowedException", "TooGenericExceptionCaught")
 private fun bridgeRead(wasm: dynamic, source: Any, bufPtr: Int, len: Int): Int {
     val innerSource = source as? SeekableSource ?: return -1
     return try {
@@ -73,7 +82,11 @@ private fun bridgeRead(wasm: dynamic, source: Any, bufPtr: Int, len: Int): Int {
         val bytesRead = innerSource.read(tmpArray, 0, len)
         if (bytesRead > 0) {
             val jsArray = tmpArray.asDynamic() as org.khronos.webgl.Int8Array
-            val view = org.khronos.webgl.Uint8Array(jsArray.buffer, jsArray.byteOffset, bytesRead)
+            val view = org.khronos.webgl.Uint8Array(
+                jsArray.buffer,
+                jsArray.byteOffset,
+                bytesRead
+            )
             wasm.HEAPU8.set(view, bufPtr)
         }
         bytesRead
@@ -82,6 +95,7 @@ private fun bridgeRead(wasm: dynamic, source: Any, bufPtr: Int, len: Int): Int {
     }
 }
 
+@Suppress("SwallowedException", "TooGenericExceptionCaught")
 private fun bridgeSeek(source: Any, pos: Double) {
     try {
         (source as? SeekableSource)?.seek(pos.toLong())
@@ -90,28 +104,31 @@ private fun bridgeSeek(source: Any, pos: Double) {
     }
 }
 
-private fun bridgePosition(source: Any): Double {
-    return try {
-        (source as? SeekableSource)?.position()?.toDouble() ?: 0.0
-    } catch (e: Throwable) {
-        0.0
-    }
+@Suppress("SwallowedException", "TooGenericExceptionCaught")
+private fun bridgePosition(source: Any): Double = try {
+    (source as? SeekableSource)?.position()?.toDouble() ?: 0.0
+} catch (e: Throwable) {
+    0.0
 }
 
-private fun bridgeLength(source: Any): Double {
-    return try {
-        (source as? SeekableSource)?.length()?.toDouble() ?: 0.0
-    } catch (e: Throwable) {
-        0.0
-    }
+@Suppress("SwallowedException", "TooGenericExceptionCaught")
+private fun bridgeLength(source: Any): Double = try {
+    (source as? SeekableSource)?.length()?.toDouble() ?: 0.0
+} catch (e: Throwable) {
+    0.0
 }
 
+@Suppress("SwallowedException", "TooGenericExceptionCaught")
 private fun bridgeWrite(wasm: dynamic, sink: Any, bufPtr: Int, len: Int) {
     val innerSink = sink as? Sink ?: return
     try {
         val tmpArray = ByteArray(len)
         val jsArray = tmpArray.asDynamic() as org.khronos.webgl.Int8Array
-        val view = org.khronos.webgl.Int8Array(wasm.HEAPU8.buffer as org.khronos.webgl.ArrayBuffer, bufPtr, len)
+        val view = org.khronos.webgl.Int8Array(
+            wasm.HEAPU8.buffer as org.khronos.webgl.ArrayBuffer,
+            bufPtr,
+            len
+        )
         jsArray.set(view)
         innerSink.write(tmpArray, 0, len)
     } catch (e: Throwable) {
@@ -142,82 +159,44 @@ public actual object KioArch {
      * @throws ArchiveException if native library fails to open the archive
      */
     public actual fun createReader(source: SeekableSource): ArchiveReader {
-        val wasm = wasmModule ?: throw IllegalStateException("KioArch has not been initialized. Call KioArch.initialize(module) first.")
-        
+        val wasm = wasmModule ?: throwNotInitialized()
+
         val sourceOpaqueId = registerOpaque(source)
         var sourcePtr = 0
-        var readFuncPtr = 0
-        var seekFuncPtr = 0
-        var posFuncPtr = 0
-        var lenFuncPtr = 0
+        var ptrs: SourceCallbackPtrs? = null
         var handle: Long = 0L
 
         try {
             // Register callbacks to Emscripten function table
-            val readFuncCreator = js("""
-                function(wasm, getOpaque, bridgeRead) {
-                    return wasm.addFunction(function(opaqueId, bufPtr, len) {
-                        var innerSource = getOpaque(opaqueId);
-                        if (!innerSource) return -1;
-                        return bridgeRead(wasm, innerSource, bufPtr, len);
-                    }, 'iiii');
-                }
-            """) as (dynamic, (Int) -> Any?, (dynamic, Any, Int, Int) -> Int) -> Int
-            readFuncPtr = readFuncCreator(wasm, ::getOpaque, ::bridgeRead)
-
-            val seekFuncCreator = js("""
-                function(wasm, getOpaque, bridgeSeek) {
-                    return wasm.addFunction(function(opaqueId, pos) {
-                        var innerSource = getOpaque(opaqueId);
-                        if (innerSource) {
-                            bridgeSeek(innerSource, Number(pos));
-                        }
-                    }, 'vij');
-                }
-            """) as (dynamic, (Int) -> Any?, (Any, Double) -> Unit) -> Int
-            seekFuncPtr = seekFuncCreator(wasm, ::getOpaque, ::bridgeSeek)
-
-            val posFuncCreator = js("""
-                function(wasm, getOpaque, bridgePosition) {
-                    return wasm.addFunction(function(opaqueId) {
-                        var innerSource = getOpaque(opaqueId);
-                        var bigInt = globalThis["BigInt"];
-                        return innerSource ? bigInt(bridgePosition(innerSource)) : bigInt(0);
-                    }, 'ji');
-                }
-            """) as (dynamic, (Int) -> Any?, (Any) -> Double) -> Int
-            posFuncPtr = posFuncCreator(wasm, ::getOpaque, ::bridgePosition)
-
-            val lenFuncCreator = js("""
-                function(wasm, getOpaque, bridgeLength) {
-                    return wasm.addFunction(function(opaqueId) {
-                        var innerSource = getOpaque(opaqueId);
-                        var bigInt = globalThis["BigInt"];
-                        return innerSource ? bigInt(bridgeLength(innerSource)) : bigInt(0);
-                    }, 'ji');
-                }
-            """) as (dynamic, (Int) -> Any?, (Any) -> Double) -> Int
-            lenFuncPtr = lenFuncCreator(wasm, ::getOpaque, ::bridgeLength)
+            ptrs = registerJsSourceCallbacks(wasm)
 
             // Allocate and populate kio_source_t structure (20 bytes)
-            sourcePtr = wasm._malloc(20) as Int
+            sourcePtr = wasm._malloc(SOURCE_STRUCT_SIZE) as Int
             val heap32 = wasm.HEAP32
             val sourceWordOffset = sourcePtr / 4
-            heap32[sourceWordOffset + 0] = readFuncPtr
-            heap32[sourceWordOffset + 1] = seekFuncPtr
-            heap32[sourceWordOffset + 2] = posFuncPtr
-            heap32[sourceWordOffset + 3] = lenFuncPtr
+            heap32[sourceWordOffset + 0] = ptrs.readPtr
+            heap32[sourceWordOffset + 1] = ptrs.seekPtr
+            heap32[sourceWordOffset + 2] = ptrs.posPtr
+            heap32[sourceWordOffset + 3] = ptrs.lenPtr
             heap32[sourceWordOffset + 4] = sourceOpaqueId
 
             // Allocate error message buffer (512 bytes)
-            val errMsgPtr = wasm._malloc(512) as Int
+            val errMsgPtr = wasm._malloc(ERR_MSG_BUFFER_SIZE) as Int
             try {
-                val rawHandle = wasm._kio_open_archive(sourcePtr, errMsgPtr, 512)
-                
+                val rawHandle = wasm._kio_open_archive(sourcePtr, errMsgPtr, ERR_MSG_BUFFER_SIZE)
+
                 // Emscripten handles 64-bit unsigned int returns as BigInt or low/high parts.
                 // In modern Emscripten with BigInt support, it is returned as a BigInt.
-                val handleVal = (js("function(raw) { return globalThis['BigInt'](raw); }") as (dynamic) -> dynamic)(rawHandle)
-                val isZero = (js("function(raw) { return globalThis['BigInt'](raw) === globalThis['BigInt'](0); }") as (dynamic) -> Boolean)(rawHandle)
+                val handleVal = (
+                    js(
+                    "function(raw) { return globalThis['BigInt'](raw); }"
+                ) as (dynamic) -> dynamic
+                )(rawHandle)
+                val isZero = (
+                    js(
+                    "function(raw) { return globalThis['BigInt'](raw) === globalThis['BigInt'](0); }"
+                ) as (dynamic) -> Boolean
+                )(rawHandle)
                 if (isZero) {
                     // Extract error message
                     val errMsg = wasmUtf8ToString(wasm, errMsgPtr)
@@ -228,15 +207,18 @@ public actual object KioArch {
                 wasm._free(errMsgPtr)
             }
 
-            return JsArchiveReader(wasm, sourceOpaqueId, sourcePtr, readFuncPtr, seekFuncPtr, posFuncPtr, lenFuncPtr, handle)
+            return JsArchiveReader(
+                wasm,
+                sourceOpaqueId,
+                sourcePtr,
+                ptrs.readPtr,
+                ptrs.seekPtr,
+                ptrs.posPtr,
+                ptrs.lenPtr,
+                handle
+            )
         } catch (e: Exception) {
-            // Clean up resources on failure
-            if (sourcePtr != 0) wasm._free(sourcePtr)
-            if (readFuncPtr != 0) wasm.removeFunction(readFuncPtr)
-            if (seekFuncPtr != 0) wasm.removeFunction(seekFuncPtr)
-            if (posFuncPtr != 0) wasm.removeFunction(posFuncPtr)
-            if (lenFuncPtr != 0) wasm.removeFunction(lenFuncPtr)
-            releaseOpaque(sourceOpaqueId)
+            cleanupSourcePtrs(wasm, sourcePtr, ptrs, sourceOpaqueId)
             throw e
         }
     }
@@ -248,9 +230,8 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public actual fun createReader(byteArray: ByteArray): ArchiveReader {
-        return createReader(ByteArraySeekableSource(byteArray))
-    }
+    public actual fun createReader(byteArray: ByteArray): ArchiveReader =
+        createReader(ByteArraySeekableSource(byteArray))
 
     /**
      * Creates an [ArchiveReader] from a Kotlin Multiplatform [Path] for JS.
@@ -263,13 +244,101 @@ public actual object KioArch {
         if (isNodeJs()) {
             return createReader(NodeFileSeekableSource(path.toString()))
         }
-        throw UnsupportedOperationException("File system access using Path is not supported in browser JS environment. Use ByteArray or custom SeekableSource.")
+        throw UnsupportedOperationException(
+            "File system access using Path is not supported in browser JS environment. Use ByteArray or custom SeekableSource."
+        )
     }
 }
 
-private fun isNodeJs(): Boolean {
-    return js("typeof process !== 'undefined' && process.versions != null && process.versions.node != null") as Boolean
+private class SourceCallbackPtrs(
+    val readPtr: Int,
+    val seekPtr: Int,
+    val posPtr: Int,
+    val lenPtr: Int
+)
+
+private fun throwNotInitialized(): Nothing {
+    throw IllegalStateException(
+        "KioArch has not been initialized. Call KioArch.initialize(module) first."
+    )
 }
+
+private fun registerJsSourceCallbacks(wasm: dynamic): SourceCallbackPtrs {
+    val readFuncCreator = js(
+        """
+        function(wasm, getOpaque, bridgeRead) {
+            return wasm.addFunction(function(opaqueId, bufPtr, len) {
+                var innerSource = getOpaque(opaqueId);
+                if (!innerSource) return -1;
+                return bridgeRead(wasm, innerSource, bufPtr, len);
+            }, 'iiii');
+        }
+    """
+    ) as (dynamic, (Int) -> Any?, (dynamic, Any, Int, Int) -> Int) -> Int
+    val readPtr = readFuncCreator(wasm, ::getOpaque, ::bridgeRead)
+
+    val seekFuncCreator = js(
+        """
+        function(wasm, getOpaque, bridgeSeek) {
+            return wasm.addFunction(function(opaqueId, pos) {
+                var innerSource = getOpaque(opaqueId);
+                if (innerSource) {
+                    bridgeSeek(innerSource, Number(pos));
+                }
+            }, 'vij');
+        }
+    """
+    ) as (dynamic, (Int) -> Any?, (Any, Double) -> Unit) -> Int
+    val seekPtr = seekFuncCreator(wasm, ::getOpaque, ::bridgeSeek)
+
+    val posFuncCreator = js(
+        """
+        function(wasm, getOpaque, bridgePosition) {
+            return wasm.addFunction(function(opaqueId) {
+                var innerSource = getOpaque(opaqueId);
+                var bigInt = globalThis["BigInt"];
+                return innerSource ? bigInt(bridgePosition(innerSource)) : bigInt(0);
+            }, 'ji');
+        }
+    """
+    ) as (dynamic, (Int) -> Any?, (Any) -> Double) -> Int
+    val posPtr = posFuncCreator(wasm, ::getOpaque, ::bridgePosition)
+
+    val lenFuncCreator = js(
+        """
+        function(wasm, getOpaque, bridgeLength) {
+            return wasm.addFunction(function(opaqueId) {
+                var innerSource = getOpaque(opaqueId);
+                var bigInt = globalThis["BigInt"];
+                return innerSource ? bigInt(bridgeLength(innerSource)) : bigInt(0);
+            }, 'ji');
+        }
+    """
+    ) as (dynamic, (Int) -> Any?, (Any) -> Double) -> Int
+    val lenPtr = lenFuncCreator(wasm, ::getOpaque, ::bridgeLength)
+
+    return SourceCallbackPtrs(readPtr, seekPtr, posPtr, lenPtr)
+}
+
+private fun cleanupSourcePtrs(
+    wasm: dynamic,
+    sourcePtr: Int,
+    ptrs: SourceCallbackPtrs?,
+    opaqueId: Int
+) {
+    if (sourcePtr != 0) wasm._free(sourcePtr)
+    if (ptrs != null) {
+        if (ptrs.readPtr != 0) wasm.removeFunction(ptrs.readPtr)
+        if (ptrs.seekPtr != 0) wasm.removeFunction(ptrs.seekPtr)
+        if (ptrs.posPtr != 0) wasm.removeFunction(ptrs.posPtr)
+        if (ptrs.lenPtr != 0) wasm.removeFunction(ptrs.lenPtr)
+    }
+    releaseOpaque(opaqueId)
+}
+
+private fun isNodeJs(): Boolean = js(
+    "typeof process !== 'undefined' && process.versions != null && process.versions.node != null"
+) as Boolean
 
 private class NodeFileSeekableSource(private val pathStr: String) : SeekableSource {
     private val fs: dynamic = js("require('fs')")
@@ -284,20 +353,46 @@ private class NodeFileSeekableSource(private val pathStr: String) : SeekableSour
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        if (pos >= totalLength) return -1
-        val bytesToRead = minOf(length.toLong(), totalLength - pos).toInt()
-        if (bytesToRead <= 0) return 0
+        val result: Int
+        if (pos >= totalLength) {
+            result = -1
+        } else {
+            val bytesToRead = minOf(length.toLong(), totalLength - pos).toInt()
+            if (bytesToRead <= 0) {
+                result = 0
+            } else {
+                val isBufferAllocSupported = js(
+                    "typeof Buffer.alloc === 'function'"
+                ) as Boolean
+                val jsBuffer = if (isBufferAllocSupported) {
+                    js("Buffer.alloc(bytesToRead)")
+                } else {
+                    js("new Buffer(bytesToRead)")
+                }
+                val readBytes = fs.readSync(
+                    fd,
+                    jsBuffer,
+                    0,
+                    bytesToRead,
+                    pos.toDouble()
+                ) as Int
 
-        val jsBuffer = if (js("typeof Buffer.alloc === 'function'") as Boolean) js("Buffer.alloc(bytesToRead)") else js("new Buffer(bytesToRead)")
-        val readBytes = fs.readSync(fd, jsBuffer, 0, bytesToRead, pos.toDouble()) as Int
-        if (readBytes <= 0) return -1
-
-        val kotlinArray = buffer.asDynamic() as org.khronos.webgl.Int8Array
-        val view = org.khronos.webgl.Int8Array(jsBuffer.buffer as org.khronos.webgl.ArrayBuffer, jsBuffer.byteOffset as Int, readBytes)
-        kotlinArray.set(view, offset)
-
-        pos += readBytes
-        return readBytes
+                if (readBytes <= 0) {
+                    result = -1
+                } else {
+                    val kotlinArray = buffer.asDynamic() as org.khronos.webgl.Int8Array
+                    val view = org.khronos.webgl.Int8Array(
+                        jsBuffer.buffer as org.khronos.webgl.ArrayBuffer,
+                        jsBuffer.byteOffset as Int,
+                        readBytes
+                    )
+                    kotlinArray.set(view, offset)
+                    pos += readBytes
+                    result = readBytes
+                }
+            }
+        }
+        return result
     }
 
     override fun seek(position: Long) {
@@ -328,15 +423,19 @@ private class JsArchiveReader(
 
     override fun getEntries(): List<ArchiveEntry> {
         if (isClosed) throw IllegalStateException("Reader is closed")
-        
+
         // Emscripten receives Long as BigInt
-        val rawHandle = (js("function(h) { return globalThis['BigInt'](h.toString()); }") as (dynamic) -> dynamic)(handle)
+        val rawHandle = (
+            js(
+            "function(h) { return globalThis['BigInt'](h.toString()); }"
+        ) as (dynamic) -> dynamic
+        )(handle)
         val count = wasm._kio_get_entry_count(rawHandle) as Int
         if (count < 0) return emptyList()
 
         val list = ArrayList<ArchiveEntry>(count)
         // Allocate kio_entry_t (24 bytes)
-        val entryPtr = wasm._malloc(24) as Int
+        val entryPtr = wasm._malloc(ENTRY_STRUCT_SIZE) as Int
         try {
             for (i in 0 until count) {
                 if (wasm._kio_get_entry(rawHandle, i, entryPtr) as Int != 0) {
@@ -344,14 +443,18 @@ private class JsArchiveReader(
                     val wordOffset = entryPtr / 4
                     val index = heap32[wordOffset + 0] as Int
                     val namePtr = heap32[wordOffset + 1] as Int
-                    
+
                     // Read string from memory using Emscripten helper
                     val nameStr = wasmUtf8ToString(wasm, namePtr)
                     val normalizedName = nameStr.replace('\\', '/')
 
                     // Size is int64, read from HEAP64/HEAPU32
                     // Emscripten handles 64-bit alignment, so offset of size is 8 bytes (word offset 2 and 3)
-                    val sizeVal = (js("function(heap, idx) { return Number(heap[idx]); }") as (dynamic, Int) -> Double)(wasm.HEAP64, (entryPtr + 8) / 8)
+                    val sizeVal = (
+                        js(
+                        "function(heap, idx) { return Number(heap[idx]); }"
+                    ) as (dynamic, Int) -> Double
+                    )(wasm.HEAP64, (entryPtr + ENTRY_SIZE_OFFSET) / ENTRY_SIZE_OFFSET)
                     val size = sizeVal.toLong()
 
                     val isDir = heap32[wordOffset + 4] as Int != 0
@@ -377,13 +480,14 @@ private class JsArchiveReader(
 
     override fun extractEntry(entry: ArchiveEntry, sink: Sink) {
         if (isClosed) throw IllegalStateException("Reader is closed")
-        
+
         val sinkOpaqueId = registerOpaque(sink)
         var sinkPtr = 0
         var writeFuncPtr = 0
-        
+
         try {
-            val writeFuncCreator = js("""
+            val writeFuncCreator = js(
+                """
                 function(wasm, getOpaque, bridgeWrite) {
                     return wasm.addFunction(function(opaqueId, bufPtr, len) {
                         var innerSink = getOpaque(opaqueId);
@@ -392,30 +496,37 @@ private class JsArchiveReader(
                         }
                     }, 'viii');
                 }
-            """) as (dynamic, (Int) -> Any?, (dynamic, Any, Int, Int) -> Unit) -> Int
+            """
+            ) as (dynamic, (Int) -> Any?, (dynamic, Any, Int, Int) -> Unit) -> Int
             writeFuncPtr = writeFuncCreator(wasm, ::getOpaque, ::bridgeWrite)
 
             // Allocate kio_sink_t (8 bytes)
-            sinkPtr = wasm._malloc(8) as Int
+            sinkPtr = wasm._malloc(SINK_STRUCT_SIZE) as Int
             val heap32 = wasm.HEAP32
             val wordOffset = sinkPtr / 4
             heap32[wordOffset + 0] = writeFuncPtr
             heap32[wordOffset + 1] = sinkOpaqueId
 
-            val rawHandle = (js("function(h) { return globalThis['BigInt'](h.toString()); }") as (dynamic) -> dynamic)(handle)
-            val errMsgPtr = wasm._malloc(512) as Int
+            val rawHandle = (
+                js(
+                "function(h) { return globalThis['BigInt'](h.toString()); }"
+            ) as (dynamic) -> dynamic
+            )(handle)
+            val errMsgPtr = wasm._malloc(ERR_MSG_BUFFER_SIZE) as Int
             try {
                 val success = wasm._kio_extract_entry(
                     rawHandle,
                     entry.index,
                     sinkPtr,
                     errMsgPtr,
-                    512
+                    ERR_MSG_BUFFER_SIZE
                 ) as Int
 
                 if (success == 0) {
                     val errMsg = wasmUtf8ToString(wasm, errMsgPtr)
-                    throw ArchiveIOException("Failed to extract entry: ${entry.name}. Native error: $errMsg")
+                    throw ArchiveIOException(
+                        "Failed to extract entry: ${entry.name}. Native error: $errMsg"
+                    )
                 }
             } finally {
                 wasm._free(errMsgPtr)
@@ -429,7 +540,11 @@ private class JsArchiveReader(
 
     override fun close() {
         if (!isClosed) {
-            val rawHandle = (js("function(h) { return globalThis['BigInt'](h.toString()); }") as (dynamic) -> dynamic)(handle)
+            val rawHandle = (
+                js(
+                "function(h) { return globalThis['BigInt'](h.toString()); }"
+            ) as (dynamic) -> dynamic
+            )(handle)
             wasm._kio_close_archive(rawHandle)
             wasm._free(sourcePtr)
             wasm.removeFunction(readFuncPtr)

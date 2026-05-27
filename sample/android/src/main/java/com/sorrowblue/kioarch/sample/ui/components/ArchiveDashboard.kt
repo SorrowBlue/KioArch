@@ -144,7 +144,7 @@ private fun AnimatedStateContainer(
             exit = fadeOut()
         ) {
             val state = uiState as? MainUiState.Extracting
-            LoadingSection("Streaming and unpacking: ${state?.fileName ?: ""}...")
+            LoadingSection("Streaming and unpacking: ${state?.fileName.orEmpty()}...")
         }
 
         AnimatedVisibility(

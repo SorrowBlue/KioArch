@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.sorrowblue.kioarch.ArchiveEntry
 import com.sorrowblue.kioarch.KioArch
 import com.sorrowblue.kioarch.sample.io.UriSeekableSource
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,7 +46,7 @@ sealed interface MainUiState {
  * using Coroutines and [KioArch] on the Android platform.
  */
 @Suppress("TooGenericExceptionCaught", "ReturnCount")
-class MainViewModel : ViewModel() {
+class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO) : ViewModel() {
 
     private val _uiState = MutableStateFlow<MainUiState>(MainUiState.Idle)
 
@@ -68,7 +69,7 @@ class MainViewModel : ViewModel() {
         currentFileName = getFileName(context, uri) ?: "Archive"
         _uiState.value = MainUiState.Loading
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 UriSeekableSource(context, uri).use { source ->
                     KioArch.createReader(source).use { reader ->
@@ -98,7 +99,7 @@ class MainViewModel : ViewModel() {
 
         _uiState.value = MainUiState.Extracting(currentFileName)
 
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             try {
                 val rootDoc = DocumentFile.fromTreeUri(context, destinationFolderUri)
                     ?: throw IllegalArgumentException("Invalid destination folder URI")

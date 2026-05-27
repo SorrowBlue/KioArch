@@ -1,5 +1,4 @@
 import dev.detekt.gradle.report.ReportMergeTask
-import org.gradle.kotlin.dsl.register
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform) apply false

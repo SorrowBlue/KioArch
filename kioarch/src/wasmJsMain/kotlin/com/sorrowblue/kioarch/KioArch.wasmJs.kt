@@ -16,216 +16,63 @@
 
 package com.sorrowblue.kioarch
 
-import kotlinx.io.files.Path
 import kotlinx.io.Sink
+import kotlinx.io.files.Path
 
 // Global reference to track active Wasm module instance
 private var wasmModule: JsAny? = null
 
-// --- JS Interop Helper Functions using @JsFun ---
+private const val SOURCE_STRUCT_SIZE = 20
+private const val ENTRY_STRUCT_SIZE = 24
+private const val SINK_STRUCT_SIZE = 8
+private const val ERR_MSG_BUFFER_SIZE = 512
+private const val ENTRY_SIZE_OFFSET = 1
 
-@JsFun("() => { if (!globalThis.kioarchSources) { globalThis.kioarchSources = new Map(); } }")
-private external fun initOpaqueMap()
-
-@JsFun(
-    """(id, readFn, seekFn, posFn, lenFn) => {
-        globalThis.kioarchSources.set(id, {
-            read: readFn,
-            seek: seekFn,
-            position: posFn,
-            length: lenFn
-        });
-    }"""
-)
-private external fun putSourceJs(
-    id: Int,
-    readFn: (Int, Int) -> Int,
-    seekFn: (Double) -> Unit,
-    posFn: () -> Double,
-    lenFn: () -> Double
+private class WasmSourceCallbackPtrs(
+    val readPtr: Int,
+    val seekPtr: Int,
+    val posPtr: Int,
+    val lenPtr: Int
 )
 
-@JsFun("(id) => { globalThis.kioarchSources.delete(id); }")
-private external fun removeSourceJs(id: Int)
+private fun throwNotInitializedWasm(): Nothing {
+    throw IllegalStateException(
+        "KioArch has not been initialized. Call KioArch.initialize(module) first."
+    )
+}
 
-@JsFun("() => { if (!globalThis.kioarchSinks) { globalThis.kioarchSinks = new Map(); } }")
-private external fun initSinkMap()
+private fun registerWasmSourceCallbacks(module: JsAny): WasmSourceCallbackPtrs {
+    val readPtr = registerReadCallback(module)
+    val seekPtr = registerSeekCallback(module)
+    val posPtr = registerPosCallback(module)
+    val lenPtr = registerLenCallback(module)
+    return WasmSourceCallbackPtrs(readPtr, seekPtr, posPtr, lenPtr)
+}
 
-@JsFun("(id, writeFn) => { globalThis.kioarchSinks.set(id, { write: writeFn }); }")
-private external fun putSinkJs(id: Int, writeFn: (Int, Int) -> Unit)
-
-@JsFun("(id) => { globalThis.kioarchSinks.delete(id); }")
-private external fun removeSinkJs(id: Int)
-
-// --- Emscripten dynamic callbacks function pointer registration ---
-
-@JsFun(
-    """(module) => module.addFunction(function(opaqueId, bufPtr, len) {
-        var source = globalThis.kioarchSources.get(opaqueId);
-        if (!source) return -1;
-        return source.read(bufPtr, len);
-    }, 'iiii')"""
-)
-private external fun registerReadCallback(module: JsAny): Int
-
-@JsFun(
-    """(module) => module.addFunction(function(opaqueId, pos) {
-        var source = globalThis.kioarchSources.get(opaqueId);
-        if (source) {
-            source.seek(Number(pos));
-        }
-    }, 'vij')"""
-)
-private external fun registerSeekCallback(module: JsAny): Int
-
-@JsFun(
-    """(module) => module.addFunction(function(opaqueId) {
-        var source = globalThis.kioarchSources.get(opaqueId);
-        return source ? BigInt(source.position()) : 0n;
-    }, 'ji')"""
-)
-private external fun registerPosCallback(module: JsAny): Int
-
-@JsFun(
-    """(module) => module.addFunction(function(opaqueId) {
-        var source = globalThis.kioarchSources.get(opaqueId);
-        return source ? BigInt(source.length()) : 0n;
-    }, 'ji')"""
-)
-private external fun registerLenCallback(module: JsAny): Int
-
-@JsFun(
-    """(module) => module.addFunction(function(opaqueId, bufPtr, len) {
-        var sink = globalThis.kioarchSinks.get(opaqueId);
-        if (sink) {
-            sink.write(bufPtr, len);
-        }
-    }, 'viii')"""
-)
-private external fun registerWriteCallback(module: JsAny): Int
-
-// --- Emscripten directly bound C functions ---
-
-@JsFun("(module, size) => module._malloc(size)")
-private external fun wasmMalloc(module: JsAny, size: Int): Int
-
-@JsFun("(module, ptr) => module._free(ptr)")
-private external fun wasmFree(module: JsAny, ptr: Int)
-
-@JsFun("(module, ptr, offset, value) => { module.HEAP32[(ptr / 4) + offset] = value; }")
-private external fun writeHeap32(module: JsAny, ptr: Int, offset: Int, value: Int)
-
-@JsFun("(module, ptr, offset) => module.HEAP32[(ptr / 4) + offset]")
-private external fun readHeap32(module: JsAny, ptr: Int, offset: Int): Int
-
-@JsFun("(module, ptr, offset) => Number(module.HEAP64[((ptr + (offset * 8)) / 8)])")
-private external fun readHeap64Double(module: JsAny, ptr: Int, offset: Int): Double
-
-@JsFun(
-    """(module, namePtr) => {
-        var len = 0;
-        while (module.HEAPU8[namePtr + len] !== 0) {
-            len++;
-        }
-        if (len === 0) return "";
-        var bytes = new Uint8Array(module.HEAPU8.buffer, namePtr, len);
-        try {
-            var utf8Decoder = new TextDecoder('utf-8', { fatal: true });
-            return utf8Decoder.decode(bytes);
-        } catch (e) {
-            try {
-                var sjisDecoder = new TextDecoder('shift-jis');
-                return sjisDecoder.decode(bytes);
-            } catch (err) {
-                return module.UTF8ToString(namePtr);
-            }
-        }
-    }"""
-)
-private external fun wasmUtf8ToString(module: JsAny, namePtr: Int): String
-
-@JsFun("(module, sourcePtr, errMsgPtr, errMsgLen) => module._kio_open_archive_wasm(sourcePtr, errMsgPtr, errMsgLen)")
-private external fun wasmOpenArchive(module: JsAny, sourcePtr: Int, errMsgPtr: Int, errMsgLen: Int): JsAny
-
-@JsFun("(module, handle) => module._kio_get_entry_count(handle)")
-private external fun wasmGetEntryCount(module: JsAny, handle: JsAny): Int
-
-@JsFun("(module, handle, index, entryPtr) => module._kio_get_entry(handle, index, entryPtr)")
-private external fun wasmGetEntry(module: JsAny, handle: JsAny, index: Int, entryPtr: Int): Int
-
-@JsFun("(module, handle, index, sinkPtr, errMsgPtr, errMsgLen) => module._kio_extract_entry_wasm(handle, index, sinkPtr, errMsgPtr, errMsgLen)")
-private external fun wasmExtractEntry(module: JsAny, handle: JsAny, index: Int, sinkPtr: Int, errMsgPtr: Int, errMsgLen: Int): Int
-
-@JsFun("(module, handle) => module._kio_close_archive(handle)")
-private external fun wasmCloseArchive(module: JsAny, handle: JsAny)
-
-@JsFun("(module, ptr) => module.removeFunction(ptr)")
-private external fun wasmRemoveFunction(module: JsAny, ptr: Int)
-
-// --- Dynamic Memory Copy Helpers ---
-
-@JsFun(
-    """(module, bufPtr, getByteFn, len) => {
-        var heap = new Uint8Array(module.HEAPU8.buffer, bufPtr, len);
-        for (var i = 0; i < len; i++) {
-            heap[i] = getByteFn(i);
-        }
-    }"""
-)
-private external fun copyToHeapJs(module: JsAny, bufPtr: Int, getByteFn: (Int) -> Byte, len: Int)
+private fun cleanupWasmSourcePtrs(
+    module: JsAny,
+    sourcePtr: Int,
+    ptrs: WasmSourceCallbackPtrs?,
+    opaqueId: Int
+) {
+    if (sourcePtr != 0) wasmFree(module, sourcePtr)
+    if (ptrs != null) {
+        if (ptrs.readPtr != 0) wasmRemoveFunction(module, ptrs.readPtr)
+        if (ptrs.seekPtr != 0) wasmRemoveFunction(module, ptrs.seekPtr)
+        if (ptrs.posPtr != 0) wasmRemoveFunction(module, ptrs.posPtr)
+        if (ptrs.lenPtr != 0) wasmRemoveFunction(module, ptrs.lenPtr)
+    }
+    removeSourceJs(opaqueId)
+    releaseOpaque(opaqueId)
+}
 
 private fun copyToHeap(module: JsAny, bufPtr: Int, byteArray: ByteArray, len: Int) {
     copyToHeapJs(module, bufPtr, getByteFn = { i -> byteArray[i] }, len)
 }
 
-@JsFun(
-    """(module, bufPtr, setByteFn, len) => {
-        var heap = new Uint8Array(module.HEAPU8.buffer, bufPtr, len);
-        for (var i = 0; i < len; i++) {
-            setByteFn(i, heap[i]);
-        }
-    }"""
-)
-private external fun copyFromHeapJs(module: JsAny, bufPtr: Int, setByteFn: (Int, Byte) -> Unit, len: Int)
-
 private fun copyFromHeap(module: JsAny, bufPtr: Int, byteArray: ByteArray, len: Int) {
     copyFromHeapJs(module, bufPtr, setByteFn = { i, value -> byteArray[i] = value }, len)
 }
-
-@JsFun("(rawHandle) => BigInt(rawHandle)")
-private external fun toBigInt(rawHandle: JsAny): JsAny
-
-@JsFun("(bigIntVal) => bigIntVal === 0n")
-private external fun isZeroBigInt(bigIntVal: JsAny): Boolean
-
-@JsFun("() => typeof process !== 'undefined' && process.versions != null && process.versions.node != null")
-private external fun isNodeJsWasm(): Boolean
-
-@JsFun("() => { if (!globalThis.kioarchFs) { globalThis.kioarchFs = typeof require !== 'undefined' ? require('fs') : null; } }")
-private external fun initNodeFs()
-
-@JsFun("(pathStr) => { if (!globalThis.kioarchFs) return -1; return globalThis.kioarchFs.openSync(pathStr, 'r'); }")
-private external fun nodeOpenSync(pathStr: String): Int
-
-@JsFun("(fd) => { if (!globalThis.kioarchFs) return 0.0; return Number(globalThis.kioarchFs.fstatSync(fd).size); }")
-private external fun nodeSizeSync(fd: Int): Double
-
-@JsFun(
-    """(fd, bufPtr, bytesToRead, pos, module, copyFn) => {
-        if (!globalThis.kioarchFs) return -1;
-        var jsBuffer = typeof Buffer !== 'undefined' && typeof Buffer.alloc === 'function' ? Buffer.alloc(bytesToRead) : new Uint8Array(bytesToRead);
-        var readBytes = globalThis.kioarchFs.readSync(fd, jsBuffer, 0, bytesToRead, pos);
-        if (readBytes <= 0) return readBytes;
-        for (var i = 0; i < readBytes; i++) {
-            copyFn(i, jsBuffer[i]);
-        }
-        return readBytes;
-    }"""
-)
-private external fun nodeReadSync(fd: Int, bufPtr: Int, bytesToRead: Int, pos: Double, module: JsAny, copyFn: (Int, Byte) -> Unit): Int
-
-@JsFun("(fd) => { if (globalThis.kioarchFs) globalThis.kioarchFs.closeSync(fd); }")
-private external fun nodeCloseSync(fd: Int)
 
 // Global map to track active Kotlin objects passed to C callbacks for Wasm
 private val opaqueMap = mutableMapOf<Int, Any>()
@@ -268,83 +115,34 @@ public actual object KioArch {
      * @throws ArchiveException if native library fails to open the archive
      */
     public actual fun createReader(source: SeekableSource): ArchiveReader {
-        val module = wasmModule ?: throw IllegalStateException("KioArch has not been initialized. Call KioArch.initialize(module) first.")
-        
+        val module = wasmModule ?: throwNotInitializedWasm()
+
         val sourceOpaqueId = registerOpaque(source)
         var sourcePtr = 0
-        var readFuncPtr = 0
-        var seekFuncPtr = 0
-        var posFuncPtr = 0
-        var lenFuncPtr = 0
+        var ptrs: WasmSourceCallbackPtrs? = null
         var handle: JsAny? = null
 
         try {
             // Register Kotlin SeekableSource callbacks into JS global map
-            putSourceJs(
-                sourceOpaqueId,
-                readFn = { bufPtr, len ->
-                    val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                    if (innerSource == null) {
-                        -1
-                    } else {
-                        try {
-                            val tmpArray = ByteArray(len)
-                            val readBytes = innerSource.read(tmpArray, 0, len)
-                            if (readBytes > 0) {
-                                copyToHeap(module, bufPtr, tmpArray, readBytes)
-                            }
-                            readBytes
-                        } catch (e: Throwable) {
-                            -1
-                        }
-                    }
-                },
-                seekFn = { pos ->
-                    try {
-                        val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                        innerSource?.seek(pos.toLong())
-                    } catch (e: Throwable) {
-                        // Safe guard to prevent throwing into C++ Wasm boundary
-                    }
-                },
-                posFn = {
-                    try {
-                        val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                        innerSource?.position()?.toDouble() ?: 0.0
-                    } catch (e: Throwable) {
-                        0.0
-                    }
-                },
-                lenFn = {
-                    try {
-                        val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                        innerSource?.length()?.toDouble() ?: 0.0
-                    } catch (e: Throwable) {
-                        0.0
-                    }
-                }
-            )
+            putWasmSourceCallbacks(module, sourceOpaqueId)
 
             // Register C-compatible callback function pointers in Emscripten
-            readFuncPtr = registerReadCallback(module)
-            seekFuncPtr = registerSeekCallback(module)
-            posFuncPtr = registerPosCallback(module)
-            lenFuncPtr = registerLenCallback(module)
+            ptrs = registerWasmSourceCallbacks(module)
 
             // Allocate and populate kio_source_t structure (20 bytes)
-            sourcePtr = wasmMalloc(module, 20)
-            writeHeap32(module, sourcePtr, 0, readFuncPtr)
-            writeHeap32(module, sourcePtr, 1, seekFuncPtr)
-            writeHeap32(module, sourcePtr, 2, posFuncPtr)
-            writeHeap32(module, sourcePtr, 3, lenFuncPtr)
+            sourcePtr = wasmMalloc(module, SOURCE_STRUCT_SIZE)
+            writeHeap32(module, sourcePtr, 0, ptrs.readPtr)
+            writeHeap32(module, sourcePtr, 1, ptrs.seekPtr)
+            writeHeap32(module, sourcePtr, 2, ptrs.posPtr)
+            writeHeap32(module, sourcePtr, 3, ptrs.lenPtr)
             writeHeap32(module, sourcePtr, 4, sourceOpaqueId)
 
             // Allocate error message buffer (512 bytes)
-            val errMsgPtr = wasmMalloc(module, 512)
+            val errMsgPtr = wasmMalloc(module, ERR_MSG_BUFFER_SIZE)
             try {
-                val rawHandle = wasmOpenArchive(module, sourcePtr, errMsgPtr, 512)
+                val rawHandle = wasmOpenArchive(module, sourcePtr, errMsgPtr, ERR_MSG_BUFFER_SIZE)
                 val handleVal = toBigInt(rawHandle)
-                
+
                 if (isZeroBigInt(handleVal)) {
                     val errMsg = wasmUtf8ToString(module, errMsgPtr)
                     throw ArchiveIOException("Failed to open archive. Native error: $errMsg")
@@ -358,21 +156,14 @@ public actual object KioArch {
                 module,
                 sourceOpaqueId,
                 sourcePtr,
-                readFuncPtr,
-                seekFuncPtr,
-                posFuncPtr,
-                lenFuncPtr,
+                ptrs.readPtr,
+                ptrs.seekPtr,
+                ptrs.posPtr,
+                ptrs.lenPtr,
                 handle
             )
         } catch (e: Exception) {
-            // Clean up resources on failure
-            if (sourcePtr != 0) wasmFree(module, sourcePtr)
-            if (readFuncPtr != 0) wasmRemoveFunction(module, readFuncPtr)
-            if (seekFuncPtr != 0) wasmRemoveFunction(module, seekFuncPtr)
-            if (posFuncPtr != 0) wasmRemoveFunction(module, posFuncPtr)
-            if (lenFuncPtr != 0) wasmRemoveFunction(module, lenFuncPtr)
-            removeSourceJs(sourceOpaqueId)
-            releaseOpaque(sourceOpaqueId)
+            cleanupWasmSourcePtrs(module, sourcePtr, ptrs, sourceOpaqueId)
             throw e
         }
     }
@@ -384,9 +175,8 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public actual fun createReader(byteArray: ByteArray): ArchiveReader {
-        return createReader(ByteArraySeekableSource(byteArray))
-    }
+    public actual fun createReader(byteArray: ByteArray): ArchiveReader =
+        createReader(ByteArraySeekableSource(byteArray))
 
     /**
      * Creates an [ArchiveReader] from a Kotlin Multiplatform [Path] for WasmJs.
@@ -397,14 +187,67 @@ public actual object KioArch {
      */
     public actual fun createReader(path: Path): ArchiveReader {
         if (isNodeJsWasm()) {
-            val module = wasmModule ?: throw IllegalStateException("KioArch has not been initialized. Call KioArch.initialize(module) first.")
+            val module = wasmModule ?: throw IllegalStateException(
+                "KioArch has not been initialized. Call KioArch.initialize(module) first."
+            )
             return createReader(NodeFileSeekableSource(path.toString(), module))
         }
-        throw UnsupportedOperationException("File system access using Path is not supported in browser WasmJs environment. Use ByteArray or custom SeekableSource.")
+        throw UnsupportedOperationException(
+            "File system access using Path is not supported in browser WasmJs environment. Use ByteArray or custom SeekableSource."
+        )
     }
 }
 
-private class NodeFileSeekableSource(private val pathStr: String, private val module: JsAny) : SeekableSource {
+@Suppress("SwallowedException", "TooGenericExceptionCaught")
+private fun putWasmSourceCallbacks(module: JsAny, sourceOpaqueId: Int) {
+    putSourceJs(
+        sourceOpaqueId,
+        readFn = { bufPtr, len ->
+            val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
+            if (innerSource == null) {
+                -1
+            } else {
+                try {
+                    val tmpArray = ByteArray(len)
+                    val readBytes = innerSource.read(tmpArray, 0, len)
+                    if (readBytes > 0) {
+                        copyToHeap(module, bufPtr, tmpArray, readBytes)
+                    }
+                    readBytes
+                } catch (e: Throwable) {
+                    -1
+                }
+            }
+        },
+        seekFn = { pos ->
+            try {
+                val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
+                innerSource?.seek(pos.toLong())
+            } catch (e: Throwable) {
+                // Safe guard to prevent throwing into C++ Wasm boundary
+            }
+        },
+        posFn = {
+            try {
+                val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
+                innerSource?.position()?.toDouble() ?: 0.0
+            } catch (e: Throwable) {
+                0.0
+            }
+        },
+        lenFn = {
+            try {
+                val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
+                innerSource?.length()?.toDouble() ?: 0.0
+            } catch (e: Throwable) {
+                0.0
+            }
+        }
+    )
+}
+
+private class NodeFileSeekableSource(private val pathStr: String, private val module: JsAny) :
+    SeekableSource {
     private val fd: Int
     private var pos: Long = 0L
     private val totalLength: Long
@@ -417,24 +260,31 @@ private class NodeFileSeekableSource(private val pathStr: String, private val mo
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        if (pos >= totalLength) return -1
-        val bytesToRead = minOf(length.toLong(), totalLength - pos).toInt()
-        if (bytesToRead <= 0) return 0
-
-        val readBytes = nodeReadSync(
-            fd,
-            0,
-            bytesToRead,
-            pos.toDouble(),
-            module,
-            copyFn = { i, value ->
-                buffer[offset + i] = value
+        val result: Int
+        if (pos >= totalLength) {
+            result = -1
+        } else {
+            val bytesToRead = minOf(length.toLong(), totalLength - pos).toInt()
+            if (bytesToRead <= 0) {
+                result = 0
+            } else {
+                val readBytes = nodeReadSync(
+                    fd,
+                    0,
+                    bytesToRead,
+                    pos.toDouble(),
+                    module,
+                    copyFn = { i, value ->
+                        buffer[offset + i] = value
+                    }
+                )
+                if (readBytes > 0) {
+                    pos += readBytes
+                }
+                result = readBytes
             }
-        )
-        if (readBytes > 0) {
-            pos += readBytes
         }
-        return readBytes
+        return result
     }
 
     override fun seek(position: Long) {
@@ -465,24 +315,24 @@ private class WasmArchiveReader(
 
     override fun getEntries(): List<ArchiveEntry> {
         if (isClosed) throw IllegalStateException("Reader is closed")
-        
+
         val count = wasmGetEntryCount(module, handle)
         if (count < 0) return emptyList()
 
         val list = ArrayList<ArchiveEntry>(count)
         // Allocate kio_entry_t (24 bytes)
-        val entryPtr = wasmMalloc(module, 24)
+        val entryPtr = wasmMalloc(module, ENTRY_STRUCT_SIZE)
         try {
             for (i in 0 until count) {
                 if (wasmGetEntry(module, handle, i, entryPtr) != 0) {
                     val index = readHeap32(module, entryPtr, 0)
                     val namePtr = readHeap32(module, entryPtr, 1)
-                    
+
                     val nameStr = wasmUtf8ToString(module, namePtr)
                     val normalizedName = nameStr.replace('\\', '/')
 
                     // Size is int64, read using double/HEAP64 helper (offset of size is 8 bytes)
-                    val size = readHeap64Double(module, entryPtr, 1).toLong()
+                    val size = readHeap64Double(module, entryPtr, ENTRY_SIZE_OFFSET).toLong()
 
                     val isDir = readHeap32(module, entryPtr, 4) != 0
                     val crc = readHeap32(module, entryPtr, 5)
@@ -507,38 +357,24 @@ private class WasmArchiveReader(
 
     override fun extractEntry(entry: ArchiveEntry, sink: Sink) {
         if (isClosed) throw IllegalStateException("Reader is closed")
-        
+
         val sinkOpaqueId = registerOpaque(sink)
         var sinkPtr = 0
         var writeFuncPtr = 0
-        
+
         try {
             // Register Kotlin Sink callback into JS global map
-            putSinkJs(
-                sinkOpaqueId,
-                writeFn = { bufPtr, len ->
-                    val innerSink = getOpaque(sinkOpaqueId) as? Sink
-                    if (innerSink != null) {
-                        try {
-                            val tmpArray = ByteArray(len)
-                            copyFromHeap(module, bufPtr, tmpArray, len)
-                            innerSink.write(tmpArray, 0, len)
-                        } catch (e: Throwable) {
-                            // Safe guard to prevent throwing into C++ Wasm boundary
-                        }
-                    }
-                }
-            )
+            putWasmSinkCallbacks(module, sinkOpaqueId)
 
             // Register C-compatible callback pointer in Emscripten
             writeFuncPtr = registerWriteCallback(module)
 
             // Allocate kio_sink_t (8 bytes)
-            sinkPtr = wasmMalloc(module, 8)
+            sinkPtr = wasmMalloc(module, SINK_STRUCT_SIZE)
             writeHeap32(module, sinkPtr, 0, writeFuncPtr)
             writeHeap32(module, sinkPtr, 1, sinkOpaqueId)
 
-            val errMsgPtr = wasmMalloc(module, 512)
+            val errMsgPtr = wasmMalloc(module, ERR_MSG_BUFFER_SIZE)
             try {
                 val success = wasmExtractEntry(
                     module,
@@ -546,12 +382,14 @@ private class WasmArchiveReader(
                     entry.index,
                     sinkPtr,
                     errMsgPtr,
-                    512
+                    ERR_MSG_BUFFER_SIZE
                 )
 
                 if (success == 0) {
                     val errMsg = wasmUtf8ToString(module, errMsgPtr)
-                    throw ArchiveIOException("Failed to extract entry: ${entry.name}. Native error: $errMsg")
+                    throw ArchiveIOException(
+                        "Failed to extract entry: ${entry.name}. Native error: $errMsg"
+                    )
                 }
             } finally {
                 wasmFree(module, errMsgPtr)
@@ -577,6 +415,25 @@ private class WasmArchiveReader(
             isClosed = true
         }
     }
+}
+
+@Suppress("SwallowedException", "TooGenericExceptionCaught")
+private fun putWasmSinkCallbacks(module: JsAny, sinkOpaqueId: Int) {
+    putSinkJs(
+        sinkOpaqueId,
+        writeFn = { bufPtr, len ->
+            val innerSink = getOpaque(sinkOpaqueId) as? Sink
+            if (innerSink != null) {
+                try {
+                    val tmpArray = ByteArray(len)
+                    copyFromHeap(module, bufPtr, tmpArray, len)
+                    innerSink.write(tmpArray, 0, len)
+                } catch (e: Throwable) {
+                    // Safe guard to prevent throwing into C++ Wasm boundary
+                }
+            }
+        }
+    )
 }
 
 // Inline helper extension to cast JS reference safely in Kotlin/Wasm

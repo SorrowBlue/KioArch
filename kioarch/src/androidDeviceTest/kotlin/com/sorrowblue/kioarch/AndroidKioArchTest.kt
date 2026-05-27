@@ -2,6 +2,7 @@ package com.sorrowblue.kioarch
 
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
@@ -160,7 +161,7 @@ class AndroidKioArchTest {
             val numThreads = 5
             val threads = List(numThreads) {
                 kotlin.concurrent.thread(start = false) {
-                    for (i in 0 until 20) {
+                    repeat(20) {
                         val list = reader.getEntries()
                         assertEquals(1, list.size)
 
@@ -257,7 +258,7 @@ class AndroidKioArchTest {
      */
     @Test
     fun testUriExtraction() {
-        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
         val file = createTempZipFile()
         val uri = Uri.fromFile(file)
         KioArch.createReader(context, uri).use { reader ->

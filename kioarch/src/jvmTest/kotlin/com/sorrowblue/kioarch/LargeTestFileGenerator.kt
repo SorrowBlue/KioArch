@@ -1,17 +1,18 @@
 package com.sorrowblue.kioarch
 
-import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry
-import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
-import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 
-public object LargeTestFileGenerator {
+object LargeTestFileGenerator {
     @JvmStatic
-    public fun main(args: Array<String>) {
+    @Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth", "MagicNumber")
+    fun main(args: Array<String>) {
         if (args.isEmpty()) {
             println("Usage: LargeTestFileGenerator <output-directory>")
             return

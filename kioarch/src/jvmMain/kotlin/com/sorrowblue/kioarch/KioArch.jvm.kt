@@ -18,6 +18,8 @@ package com.sorrowblue.kioarch
 
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Paths
+import kotlinx.io.files.Path
 
 public actual object KioArch {
     public actual fun createReader(source: SeekableSource): ArchiveReader {
@@ -30,13 +32,15 @@ public actual object KioArch {
         return SeekableArchiveReader(ByteArraySeekableSource(byteArray))
     }
 
-    public actual fun createReader(path: kotlinx.io.files.Path): ArchiveReader {
+    public actual fun createReader(path: Path): ArchiveReader {
         loadLibrary()
-        return SeekableArchiveReader(PathSeekableSource(java.nio.file.Paths.get(path.toString())))
+        return SeekableArchiveReader(PathSeekableSource(Paths.get(path.toString())))
     }
 
+    @Suppress("UnusedPrivateProperty", "VarCouldBeVal")
     private var loaded = false
 
+    @Suppress("TooGenericExceptionCaught")
     @Synchronized
     internal fun loadLibrary() {
         if (loaded) return
@@ -47,15 +51,19 @@ public actual object KioArch {
             // Resolve the resource subdirectory based on OS and architecture
             val (dir, ext) = when {
                 os.contains("win") -> "windows/amd64" to "dll"
-                os.contains("mac") || os.contains("darwin") -> "macos/universal" to "dylib"
+
+                os.contains("mac") || os.contains("darwin") ->
+                    "macos/universal" to "dylib"
+
                 os.contains("linux") -> "linux/amd64" to "so"
-                else -> throw UnsupportedOperationException("Unsupported OS: $os")
+
+                else -> throwUnsupportedOS(os)
             }
 
             val prefix = if (os.contains("win")) "" else "lib"
             val resourcePath = "/natives/$dir/${prefix}kioarch.$ext"
             val inputStream = KioArch::class.java.getResourceAsStream(resourcePath)
-                ?: throw IllegalStateException("Native library not found in classpath resources: $resourcePath")
+                ?: throwLibraryNotFound(resourcePath)
 
             // Copy resource to a temporary file
             val tempFile = File.createTempFile("libkioarch", ".$ext")
@@ -69,9 +77,30 @@ public actual object KioArch {
             System.load(tempFile.absolutePath)
             loaded = true
         } catch (e: Exception) {
-            throw UnsatisfiedLinkError("Failed to load native KioArch library: ${e.message}").apply {
+            throw UnsatisfiedLinkError(
+                "Failed to load native KioArch library: ${e.message}"
+            ).apply {
                 initCause(e)
             }
         }
     }
+
+    /**
+     * Throws an [UnsupportedOperationException] when the current OS is not supported.
+     *
+     * @param os the name of the operating system.
+     * @throws UnsupportedOperationException always.
+     */
+    private fun throwUnsupportedOS(os: String): Nothing =
+        throw UnsupportedOperationException("Unsupported OS: $os")
+
+    /**
+     * Throws an [IllegalStateException] when the native library resource is not found.
+     *
+     * @param path the resource path that was searched.
+     * @throws IllegalStateException always.
+     */
+    private fun throwLibraryNotFound(path: String): Nothing = error(
+        "Native library not found in classpath resources: $path"
+    )
 }
