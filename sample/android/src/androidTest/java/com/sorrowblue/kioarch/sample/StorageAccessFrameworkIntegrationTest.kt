@@ -93,7 +93,10 @@ class StorageAccessFrameworkIntegrationTest {
             // 6. Verification: Wait for the sample application to process and display the archive entries.
             // Check that the title "test_ui_automator.zip" is displayed.
             val titleNode = device.wait(Until.findObject(By.text(testFilename)), 12000)
-            assertNotNull("Imported ZIP file name was not displayed in UI after selection", titleNode)
+            assertNotNull(
+                "Imported ZIP file name was not displayed in UI after selection",
+                titleNode
+            )
 
             // Verify the extracted file entries are rendered via KioArch in the UI.
             val entryNode = device.wait(Until.findObject(By.text("test.txt")), 6000)
@@ -109,6 +112,7 @@ class StorageAccessFrameworkIntegrationTest {
      * is encountered (e.g. if the view is in the process of rebuilding during an animation),
      * it automatically refetches the node and retries up to the given timeout.
      */
+    @Suppress("SwallowedException")
     private fun clickWithRetry(device: UiDevice, selector: BySelector, timeoutMs: Long = 10000) {
         var clicked = false
         val endTime = System.currentTimeMillis() + timeoutMs
@@ -127,10 +131,13 @@ class StorageAccessFrameworkIntegrationTest {
             }
         }
         if (!clicked) {
-            throw AssertionError("Failed to click element matching selector: $selector within ${timeoutMs}ms")
+            throw AssertionError(
+                "Failed to click element matching selector: $selector within ${timeoutMs}ms"
+            )
         }
     }
 
+    @Suppress("ReturnCount", "SwallowedException", "TooGenericExceptionCaught")
     private fun createTestZipInDownloads(context: Context, filename: String): Uri? {
         val resolver = context.contentResolver
         val contentValues = ContentValues().apply {
@@ -139,7 +146,10 @@ class StorageAccessFrameworkIntegrationTest {
             put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
         }
 
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues) ?: return null
+        val uri = resolver.insert(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            contentValues
+        ) ?: return null
         try {
             resolver.openOutputStream(uri)?.use { os ->
                 ZipOutputStream(os).use { zos ->
@@ -156,6 +166,7 @@ class StorageAccessFrameworkIntegrationTest {
         return uri
     }
 
+    @Suppress("SwallowedException", "TooGenericExceptionCaught")
     private fun deleteTestZipInDownloads(context: Context, uri: Uri) {
         try {
             context.contentResolver.delete(uri, null, null)

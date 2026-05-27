@@ -1,9 +1,5 @@
 package com.sorrowblue.kioarch
 
-import kotlinx.io.Buffer
-import kotlinx.io.files.Path
-import kotlinx.io.readByteArray
-import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.Charset
@@ -15,6 +11,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlinx.io.Buffer
+import kotlinx.io.files.Path
+import kotlinx.io.readByteArray
+import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 
 class KioArchTest {
 
@@ -122,6 +125,7 @@ class KioArchTest {
         }
         return tempFile
     }
+
     @Test
     fun testCorruptedArchiveThrowsException() {
         val file = createTempZipFile()
@@ -140,7 +144,6 @@ class KioArchTest {
         }
     }
 
-
     @Test
     fun testRealExtraction() {
         val file = createTemp7zFile()
@@ -150,7 +153,10 @@ class KioArchTest {
 
             println("Found ${entries.size} entries in test.7z")
             for (entry in entries.take(5)) {
-                println("Entry: name=${entry.name}, size=${entry.size}, isDir=${entry.isDirectory}, crc=${entry.crc}")
+                println(
+                    "Entry: name=${entry.name}, size=${entry.size}, " +
+                        "isDir=${entry.isDirectory}, crc=${entry.crc}"
+                )
             }
 
             // Find the first non-directory entry to test extraction
@@ -187,7 +193,10 @@ class KioArchTest {
 
             println("Found ${entries.size} entries in test.zip")
             for (entry in entries.take(5)) {
-                println("Entry: name=${entry.name}, size=${entry.size}, isDir=${entry.isDirectory}, crc=${entry.crc}")
+                println(
+                    "Entry: name=${entry.name}, size=${entry.size}, " +
+                        "isDir=${entry.isDirectory}, crc=${entry.crc}"
+                )
             }
 
             // Find the first non-directory entry to test extraction
@@ -223,9 +232,9 @@ class KioArchTest {
 
         val edgeCaseNames = listOf(
             "テスト_日本語ファイル名_Shift_JIS.txt",
-            "dame_moji_ソ表能予.txt",       // Second byte of these characters is 0x5C (backslash '\')
-            "half_width_ｶﾀｶﾅﾃｽﾄ.txt",      // Half-width Katakana
-            "cp932_extensions_①Ⅳ髙﨑.txt"  // Circled numbers, Roman numerals, NEC/IBM characters
+            "dame_moji_ソ表能予.txt", // Second byte of these characters is 0x5C (backslash '\')
+            "half_width_ｶﾀｶﾅﾃｽﾄ.txt", // Half-width Katakana
+            "cp932_extensions_①Ⅳ髙﨑.txt" // Circled numbers, Roman numerals, NEC/IBM characters
         )
 
         // Write a zip file with MS932 (Windows-31J) encoding for maximum compatibility with all edge cases
@@ -282,7 +291,7 @@ class KioArchTest {
             val numThreads = 10
             val threads = List(numThreads) {
                 thread(start = false) {
-                    for (i in 0 until 50) {
+                    repeat(50) {
                         val list = reader.getEntries()
                         assertEquals(1, list.size)
 
@@ -454,19 +463,24 @@ class KioArchTest {
         val tempFile = File.createTempFile("kioarch_test_dynamic", ".tar.gz")
         tempFile.deleteOnExit()
         FileOutputStream(tempFile).use { fos ->
-            org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream(fos).use { gzos ->
-                org.apache.commons.compress.archivers.tar.TarArchiveOutputStream(gzos).use { tos ->
+            GzipCompressorOutputStream(fos).use { gzos ->
+                TarArchiveOutputStream(gzos).use { tos ->
                     // First entry
                     val content1 = "This is a dummy text file inside tar.gz.".toByteArray()
-                    val entry1 = org.apache.commons.compress.archivers.tar.TarArchiveEntry("dummy1.txt")
+                    val entry1 = TarArchiveEntry("dummy1.txt")
                     entry1.size = content1.size.toLong()
                     tos.putArchiveEntry(entry1)
                     tos.write(content1)
                     tos.closeArchiveEntry()
 
                     // Second entry
-                    val content2 = "Some more dummy content in the second tar.gz file.".toByteArray()
-                    val entry2 = org.apache.commons.compress.archivers.tar.TarArchiveEntry("dummy2.txt")
+                    val content2 = (
+                        "Some more dummy content in the " +
+                            "second tar.gz file."
+                        ).toByteArray()
+                    val entry2 = TarArchiveEntry(
+                        "dummy2.txt"
+                    )
                     entry2.size = content2.size.toLong()
                     tos.putArchiveEntry(entry2)
                     tos.write(content2)
@@ -474,7 +488,9 @@ class KioArchTest {
 
                     // Windows path normalization test entry
                     val content3 = "Windows path data".toByteArray()
-                    val entry3 = org.apache.commons.compress.archivers.tar.TarArchiveEntry("nested\\windows\\path.txt")
+                    val entry3 = TarArchiveEntry(
+                        "nested\\windows\\path.txt"
+                    )
                     entry3.size = content3.size.toLong()
                     tos.putArchiveEntry(entry3)
                     tos.write(content3)
@@ -507,14 +523,20 @@ class KioArchTest {
             val buffer1 = Buffer()
             reader.extractEntry(fileEntry1, buffer1)
             assertEquals(fileEntry1.size, buffer1.size)
-            assertEquals("This is a dummy text file inside tar.gz.", buffer1.readByteArray().decodeToString())
+            assertEquals(
+                "This is a dummy text file inside tar.gz.",
+                buffer1.readByteArray().decodeToString()
+            )
 
             // Test extraction of second entry
             val fileEntry2 = entries[1]
             val buffer2 = Buffer()
             reader.extractEntry(fileEntry2, buffer2)
             assertEquals(fileEntry2.size, buffer2.size)
-            assertEquals("Some more dummy content in the second tar.gz file.", buffer2.readByteArray().decodeToString())
+            assertEquals(
+                "Some more dummy content in the second tar.gz file.",
+                buffer2.readByteArray().decodeToString()
+            )
 
             // Test extraction of third entry
             val fileEntry3 = entries[2]
@@ -535,7 +557,7 @@ class KioArchTest {
             val entry = sevenZFile.createArchiveEntry(temp7zFile, "large_dummy.bin")
             entry.size = dataSize.toLong()
             sevenZFile.putArchiveEntry(entry)
-            
+
             val buffer = ByteArray(1024 * 1024) // 1MB buffer
             var written = 0
             while (written < dataSize) {
@@ -575,18 +597,23 @@ class KioArchTest {
     }
 
     @Test
+    @Suppress("NestedBlockDepth")
     fun testLargeTarGzExtraction() {
         val tempTarGzFile = File.createTempFile("kioarch_large_targz_test", ".tar.gz")
         tempTarGzFile.deleteOnExit()
 
         val dataSize = 10 * 1024 * 1024 // 10MB
         FileOutputStream(tempTarGzFile).use { fos ->
-            org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream(fos).use { gzos ->
-                org.apache.commons.compress.archivers.tar.TarArchiveOutputStream(gzos).use { tos ->
-                    val entry = org.apache.commons.compress.archivers.tar.TarArchiveEntry("large_dummy.bin")
+            GzipCompressorOutputStream(
+                fos
+            ).use { gzos ->
+                TarArchiveOutputStream(gzos).use { tos ->
+                    val entry = TarArchiveEntry(
+                        "large_dummy.bin"
+                    )
                     entry.size = dataSize.toLong()
                     tos.putArchiveEntry(entry)
-                    
+
                     val buffer = ByteArray(1024 * 1024) // 1MB buffer
                     var written = 0
                     while (written < dataSize) {
