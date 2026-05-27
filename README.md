@@ -21,28 +21,50 @@ Powered by embedded, highly-optimized, pure C native engines (**7-Zip Core** and
 
 ---
 
-## 📐 Architecture & Flow
+## 💻 Supported Specifications
 
-KioArch bypasses the filesystem entirely, loading JNI bindings dynamically and using callbacks to decompress data dynamically.
+KioArch provides high-performance, cross-platform archive processing across various platforms, architectures, and formats.
 
-```mermaid
-graph TD
-    KotlinSource["SeekableSource (Kotlin)"] -->|Open| openArchive["openArchive (JNI C)"]
-    openArchive -->|Read Magic Bytes| checkMagic{"Magic Bytes?"}
-    checkMagic -->|'7z\xBC\xAF\x27\x1C'| init7z["Initialize 7-Zip Core (CSzArEx)"]
-    checkMagic -->|'PK\x03\x04'| initZip["Initialize miniz (mz_zip_archive)"]
-    
-    init7z --> ReturnHandle["Return ArchiveHandle Pointer (jlong)"]
-    initZip --> ReturnHandle
- 
-    ReturnHandle --> userOps["getEntries() / extractEntry()"]
-    userOps --> Dispatch{"Handle Type?"}
-    Dispatch -->|ARCHIVE_TYPE_7Z| op7z["Execute via 7-Zip Engine"]
-    Dispatch -->|ARCHIVE_TYPE_ZIP| opZip["Execute via miniz Engine"]
- 
-    op7z -->|Stream decompressed chunks| KotlinSink["kotlinx.io.Sink (Kotlin)"]
-    opZip -->|Stream decompressed chunks| KotlinSink
-```
+### 1. Supported Platforms
+
+| Platform | Targets / Architectures | Note |
+| :--- | :--- | :--- |
+| **JVM (Desktop / Server)** | Windows (`x64`), macOS (`Universal`), Linux (`x64`) | Automatically extracts and loads embedded native libraries. |
+| **Android** | `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` | Fully compatible with 16 KB page size on Android 15+. Integrates with Jetpack App Startup. |
+| **iOS** | iOS Device (`arm64`), iOS Simulator (`x64`, `arm64`) | Distributed as an XCFramework with static C++ bindings. |
+| **JS (Node.js / Web)** | Kotlin/JS (Node.js / Browser) | Highly optimized Emscripten Wasm execution. |
+| **WasmJs (Node.js / Web)**| Kotlin/WasmJs (Node.js / Browser) | Highly optimized Emscripten Wasm execution. |
+
+### 2. Supported Archive Formats (Autoprobe)
+
+KioArch inspects the **magic bytes** at the beginning of the file under the hood to automatically detect the format and select the correct extraction engine. 
+
+Because it relies purely on binary magic bytes rather than file extensions, it seamlessly supports all of the following:
+
+- **`.7z`**: 7-Zip Archive format
+- **`.zip`**: ZIP Archive format
+  - **ZIP-Compatible Formats**: Also seamlessly extracts any ZIP-based file formats like **`.apk`**, **`.jar`**, **`.aar`**, **`.epub`**, etc.
+- **`.tar.gz` / `.tgz`**: Gzip Compressed Tar Archive format
+
+### 3. Decode & Encode Capabilities
+
+- **Read-Only / Decompress Only**:
+  - The current version of KioArch is **Read-Only**. It is optimized strictly for fast and filesystem-free **decompression (decoding)**. Creating or writing archives (encoding) is not supported.
+- **Supported Compression Algorithms (Decoders)**:
+  - **ZIP (via miniz)**:
+    - `Deflate`
+    - `Store` (No compression)
+  - **7z (via 7-Zip Core)**:
+    - `LZMA`
+    - `LZMA2`
+    - `PPMd`
+    - CPU filters including `BCJ`, `BCJ2`, `ARM`, `ARM64`, `IA64`, and `Delta`
+  - **Tar/Gzip (via Custom Streams)**:
+    - `Gzip (Deflate)` (Automatically decompresses block-by-block and streams standard `ustar` Tar entries on the fly)
+
+### 4. Smart Encoding (Shift_JIS / UTF-8)
+
+When processing ZIP files created on Windows, Japanese file names are often encoded in **Shift_JIS (CP932)**. KioArch automatically detects the encoding and falls back to Shift_JIS when UTF-8 decoding fails. This avoids garbled file name issues (fully supported across JVM, Android, iOS, JS, and Wasm targets).
 
 ---
 
