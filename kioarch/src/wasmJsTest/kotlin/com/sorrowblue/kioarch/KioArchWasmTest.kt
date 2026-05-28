@@ -18,6 +18,8 @@ package com.sorrowblue.kioarch
 
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
+import kotlinx.io.files.Path
+import kotlin.js.Promise
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -27,10 +29,10 @@ class KioArchWasmTest {
 
     private var wasmModule: JsAny? = null
 
-    private fun loadModuleIfNeeded(): kotlin.js.Promise<JsAny> {
+    private fun loadModuleIfNeeded(): Promise<JsAny> {
         val module = wasmModule
         if (module != null) {
-            return kotlin.js.Promise.resolve(module)
+            return Promise.resolve(module)
         }
         return loadKioArchModuleWasm().then { loaded ->
             KioArch.initialize(loaded)
@@ -86,7 +88,7 @@ class KioArchWasmTest {
     }
 
     @Test
-    fun testRealZipExtraction(): kotlin.js.Promise<JsAny?> {
+    fun testRealZipExtraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("TEST_ZIP_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -109,7 +111,7 @@ class KioArchWasmTest {
     }
 
     @Test
-    fun testReal7zExtraction(): kotlin.js.Promise<JsAny?> {
+    fun testReal7zExtraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("TEST_7Z_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -127,7 +129,7 @@ class KioArchWasmTest {
     }
 
     @Test
-    fun testZipShiftJisFilename(): kotlin.js.Promise<JsAny?> {
+    fun testZipShiftJisFilename(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("TEST_SJIS_ZIP_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -148,7 +150,7 @@ class KioArchWasmTest {
     }
 
     @Test
-    fun testPathNormalization(): kotlin.js.Promise<JsAny?> {
+    fun testPathNormalization(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("TEST_PATH_NORMAL_ZIP_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -161,7 +163,7 @@ class KioArchWasmTest {
     }
 
     @Test
-    fun testLarge7zExtraction(): kotlin.js.Promise<JsAny?> {
+    fun testLarge7zExtraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("LARGE_7Z_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -181,10 +183,10 @@ class KioArchWasmTest {
     }
 
     @Test
-    fun testNodeJsPathReader(): kotlin.js.Promise<JsAny?> {
+    fun testNodeJsPathReader(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val envPath = getTestFilePath("TEST_ZIP_PATH")
-            KioArch.createReader(kotlinx.io.files.Path(envPath)).use { reader ->
+            KioArch.createReader(Path(envPath)).use { reader ->
                 val entries = reader.getEntries()
                 assertTrue(entries.isNotEmpty())
                 assertEquals(2, entries.size)
@@ -194,7 +196,7 @@ class KioArchWasmTest {
     }
 
     @Test
-    fun testExceptionSafetyInCallbacks(): kotlin.js.Promise<JsAny?> {
+    fun testExceptionSafetyInCallbacks(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val badSource = object : SeekableSource {
                 override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
@@ -222,4 +224,4 @@ class KioArchWasmTest {
         });
     }"""
 )
-private external fun loadKioArchModuleWasm(): kotlin.js.Promise<JsAny>
+private external fun loadKioArchModuleWasm(): Promise<JsAny>

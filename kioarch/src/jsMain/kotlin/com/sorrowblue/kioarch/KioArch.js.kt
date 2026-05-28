@@ -18,6 +18,9 @@ package com.sorrowblue.kioarch
 
 import kotlinx.io.Sink
 import kotlinx.io.files.Path
+import org.khronos.webgl.ArrayBuffer
+import org.khronos.webgl.Int8Array
+import org.khronos.webgl.Uint8Array
 
 private const val SOURCE_STRUCT_SIZE = 20
 private const val ENTRY_STRUCT_SIZE = 24
@@ -81,8 +84,8 @@ private fun bridgeRead(wasm: dynamic, source: Any, bufPtr: Int, len: Int): Int {
         val tmpArray = ByteArray(len)
         val bytesRead = innerSource.read(tmpArray, 0, len)
         if (bytesRead > 0) {
-            val jsArray = tmpArray.asDynamic() as org.khronos.webgl.Int8Array
-            val view = org.khronos.webgl.Uint8Array(
+            val jsArray = tmpArray.asDynamic() as Int8Array
+            val view = Uint8Array(
                 jsArray.buffer,
                 jsArray.byteOffset,
                 bytesRead
@@ -123,9 +126,9 @@ private fun bridgeWrite(wasm: dynamic, sink: Any, bufPtr: Int, len: Int) {
     val innerSink = sink as? Sink ?: return
     try {
         val tmpArray = ByteArray(len)
-        val jsArray = tmpArray.asDynamic() as org.khronos.webgl.Int8Array
-        val view = org.khronos.webgl.Int8Array(
-            wasm.HEAPU8.buffer as org.khronos.webgl.ArrayBuffer,
+        val jsArray = tmpArray.asDynamic() as Int8Array
+        val view = Int8Array(
+            wasm.HEAPU8.buffer as ArrayBuffer,
             bufPtr,
             len
         )
@@ -380,9 +383,9 @@ private class NodeFileSeekableSource(private val pathStr: String) : SeekableSour
                 if (readBytes <= 0) {
                     result = -1
                 } else {
-                    val kotlinArray = buffer.asDynamic() as org.khronos.webgl.Int8Array
-                    val view = org.khronos.webgl.Int8Array(
-                        jsBuffer.buffer as org.khronos.webgl.ArrayBuffer,
+                    val kotlinArray = buffer.asDynamic() as Int8Array
+                    val view = Int8Array(
+                        jsBuffer.buffer as ArrayBuffer,
                         jsBuffer.byteOffset as Int,
                         readBytes
                     )

@@ -18,15 +18,19 @@ package com.sorrowblue.kioarch
 
 import java.io.File
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
 
 /**
  * A JVM/Android-specific [SeekableSource] implementation wrapping a [RandomAccessFile] for disk-based random access.
  */
-public class FileSeekableSource(file: File) : SeekableSource {
+public class FileSeekableSource(file: File) : DirectSeekableSource {
     private val raf = RandomAccessFile(file, "r")
+    private val channel = raf.channel
 
     public override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
         raf.read(buffer, offset, length)
+
+    public override fun read(byteBuffer: ByteBuffer): Int = channel.read(byteBuffer)
 
     public override fun seek(position: Long) {
         raf.seek(position)

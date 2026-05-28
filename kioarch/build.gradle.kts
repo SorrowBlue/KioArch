@@ -2,6 +2,7 @@ import TargetOs.Companion.currentOs
 import java.io.File
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)

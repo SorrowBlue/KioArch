@@ -12,6 +12,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.io.Buffer
+import kotlinx.io.asSink
+import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.readByteArray
 import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
@@ -658,6 +660,72 @@ class KioArchTest {
                 verifiedBytes += readBytes
             }
             assertEquals(dataSize.toLong(), verifiedBytes)
+        }
+    }
+
+    @Test
+    fun testDirectSeekableSourceAndZeroCopyExtraction() {
+        val zipFile = createTempZipFile()
+        val directSource = FileSeekableSource(zipFile)
+        try {
+            // Assert that FileSeekableSource implements DirectSeekableSource on JVM
+            @Suppress("USELESS_IS_CHECK")
+            assertTrue(
+                directSource is DirectSeekableSource,
+                "FileSeekableSource should implement DirectSeekableSource"
+            )
+
+            KioArch.createReader(directSource).use { reader ->
+                val entries = reader.getEntries()
+                assertTrue(entries.isNotEmpty())
+
+                val fileEntry = entries.first { !it.isDirectory && it.size > 0 }
+
+                // Extracting into a file-based channel/stream to test
+                // the direct ByteBuffer writing path
+                val extractedFile = File.createTempFile(
+                    "kioarch_direct_out",
+                    ".bin"
+                )
+                extractedFile.deleteOnExit()
+
+                FileOutputStream(extractedFile).use { fos ->
+                    val sink = fos.asSink().buffered()
+                    reader.extractEntry(fileEntry, sink)
+                    sink.flush()
+                }
+
+                assertEquals(
+                    fileEntry.size,
+                    extractedFile.length(),
+                    "Extracted file size should match entry size"
+                )
+            }
+        } finally {
+            directSource.close()
+        }
+
+        // Test with 7z too
+        val sevenzFile = createTemp7zFile()
+        val source = FileSeekableSource(sevenzFile)
+        try {
+            KioArch.createReader(source).use { reader ->
+                val entries = reader.getEntries()
+                val fileEntry = entries.first { !it.isDirectory && it.size > 0 }
+                val extractedFile = File.createTempFile(
+                    "kioarch_direct_out_7z",
+                    ".bin"
+                )
+                extractedFile.deleteOnExit()
+                FileOutputStream(extractedFile).use { fos ->
+                    val sink = fos.asSink().buffered()
+                    reader.extractEntry(fileEntry, sink)
+                    sink.flush()
+                }
+                assertEquals(fileEntry.size, extractedFile.length())
+            }
+        } finally {
+            source.close()
         }
     }
 }

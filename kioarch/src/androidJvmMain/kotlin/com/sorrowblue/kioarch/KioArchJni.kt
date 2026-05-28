@@ -16,6 +16,7 @@
 
 package com.sorrowblue.kioarch
 
+import java.nio.ByteBuffer
 import kotlinx.io.Sink
 
 internal class JniEntries(
@@ -26,9 +27,18 @@ internal class JniEntries(
     val crc: LongArray
 )
 
+internal interface DirectExtractCallback {
+    fun onData(buffer: ByteBuffer)
+}
+
 internal object KioArchJni {
     external fun openArchive(source: SeekableSource): Long
     external fun closeArchive(handle: Long): Unit
     external fun getEntries(handle: Long): JniEntries
     external fun extractEntry(handle: Long, index: Int, sink: Sink): Boolean
+    external fun extractEntryDirect(
+        handle: Long,
+        index: Int,
+        callback: DirectExtractCallback
+    ): Boolean
 }

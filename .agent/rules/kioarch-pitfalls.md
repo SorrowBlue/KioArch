@@ -115,3 +115,13 @@ graph TD
     opZip -->|Stream decompressed chunks| KotlinSink
     opTarGz -->|Stream decompressed chunks| KotlinSink
 ```
+
+## 4. JVM/Android JNI Direct ByteBuffer & Zero-Copy Pitfalls
+
+JNI境界でのゼロコピー（`DirectSeekableSource` や `NewDirectByteBuffer` を用いた直接転送）におけるメモリ管理や例外安全上の必須ルール：
+
+### ⑭ JNI `NewDirectByteBuffer` とダイレクトByteBuffer操作における例外安全とローカル参照リークの防止
+- **Problem**: `NewDirectByteBuffer` で生成された `jobject` はJNIの「ローカル参照」を消費します。特にループ処理（ストリーミング解凍など）の中で繰り返し生成すると、デフォルトのローカル参照テーブル上限を突破してJVMがクラッシュします。また、Kotlinのコールバック呼び出し中にJVM例外が発生した場合、C++側で適切にC側メモリを解放しないとメモリリークやクラッシュを誘発します。
+- **Solution**:
+  - `NewDirectByteBuffer` で作成したローカル参照は、使用後に必ず `(*env)->DeleteLocalRef(env, directBuffer)` を用いて即座に明示的に解放すること。
+  - Kotlinコールバックの呼び出し（`CallVoidMethod` など）の直後には、必ず `ExceptionCheck(env)` でJVM例外を検知すること。例外が発生している場合は、処理を即時離脱（abort）し、確保していたC++側のメモリ資源（展開バッファやデコーダ等）を適切にクリーンアップした上で復帰すること。

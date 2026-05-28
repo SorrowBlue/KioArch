@@ -18,6 +18,9 @@ package com.sorrowblue.kioarch
 
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
+import kotlinx.io.files.Path
+import kotlin.js.JsAny
+import kotlin.js.Promise
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -25,17 +28,17 @@ import kotlin.test.assertTrue
 
 class KioArchJsTest {
 
-    private var wasmModule: kotlin.js.JsAny? = null
+    private var wasmModule: JsAny? = null
 
-    private fun loadModuleIfNeeded(): kotlin.js.Promise<kotlin.js.JsAny> {
+    private fun loadModuleIfNeeded(): Promise<JsAny> {
         val module = wasmModule
         if (module != null) {
             @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
-            return kotlin.js.Promise.resolve(module)
+            return Promise.resolve(module)
         }
         val createKioArchModule = js("require('./natives/kioarch.js')")
         val config = js("({ locateFile: (path) => './kotlin/natives/' + path })")
-        val promise = createKioArchModule(config) as kotlin.js.Promise<kotlin.js.JsAny>
+        val promise = createKioArchModule(config) as Promise<JsAny>
         return promise.then { loaded ->
             KioArch.initialize(loaded)
             wasmModule = loaded
@@ -90,7 +93,7 @@ class KioArchJsTest {
     }
 
     @Test
-    fun testRealZipExtraction(): kotlin.js.Promise<kotlin.js.JsAny?> {
+    fun testRealZipExtraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("TEST_ZIP_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -113,7 +116,7 @@ class KioArchJsTest {
     }
 
     @Test
-    fun testReal7zExtraction(): kotlin.js.Promise<kotlin.js.JsAny?> {
+    fun testReal7zExtraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("TEST_7Z_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -131,7 +134,7 @@ class KioArchJsTest {
     }
 
     @Test
-    fun testZipShiftJisFilename(): kotlin.js.Promise<kotlin.js.JsAny?> {
+    fun testZipShiftJisFilename(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("TEST_SJIS_ZIP_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -152,7 +155,7 @@ class KioArchJsTest {
     }
 
     @Test
-    fun testPathNormalization(): kotlin.js.Promise<kotlin.js.JsAny?> {
+    fun testPathNormalization(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("TEST_PATH_NORMAL_ZIP_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -165,7 +168,7 @@ class KioArchJsTest {
     }
 
     @Test
-    fun testLarge7zExtraction(): kotlin.js.Promise<kotlin.js.JsAny?> {
+    fun testLarge7zExtraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val bytes = readTestFile("LARGE_7Z_PATH")
             KioArch.createReader(bytes).use { reader ->
@@ -185,11 +188,11 @@ class KioArchJsTest {
     }
 
     @Test
-    fun testNodeJsPathReader(): kotlin.js.Promise<kotlin.js.JsAny?> {
+    fun testNodeJsPathReader(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val envPath = js("process.env['TEST_ZIP_PATH']") as? String
                 ?: throw IllegalStateException("TEST_ZIP_PATH not set")
-            KioArch.createReader(kotlinx.io.files.Path(envPath)).use { reader ->
+            KioArch.createReader(Path(envPath)).use { reader ->
                 val entries = reader.getEntries()
                 assertTrue(entries.isNotEmpty())
                 assertEquals(2, entries.size)
@@ -199,7 +202,7 @@ class KioArchJsTest {
     }
 
     @Test
-    fun testExceptionSafetyInCallbacks(): kotlin.js.Promise<kotlin.js.JsAny?> {
+    fun testExceptionSafetyInCallbacks(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
             val badSource = object : SeekableSource {
                 override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
