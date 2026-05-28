@@ -8,12 +8,14 @@ endif()
 
 set(7ZIP_C_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../7zip/C")
 set(MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../miniz")
+set(BZIP2_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../bzip2")
 
 # Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${7ZIP_C_DIR}
     ${MINIZ_DIR}
+    ${BZIP2_DIR}
 )
 
 if(NOT ANDROID AND NOT IOS AND NOT EMSCRIPTEN)
@@ -47,6 +49,16 @@ set(7ZIP_SOURCES
     "${7ZIP_C_DIR}/Sha256Opt.c"
 )
 
+set(BZIP2_SOURCES
+    "${BZIP2_DIR}/blocksort.c"
+    "${BZIP2_DIR}/huffman.c"
+    "${BZIP2_DIR}/crctable.c"
+    "${BZIP2_DIR}/randtable.c"
+    "${BZIP2_DIR}/compress.c"
+    "${BZIP2_DIR}/decompress.c"
+    "${BZIP2_DIR}/bzlib.c"
+)
+
 # Set preprocessor flags
 # Z7_ST: Single-threaded build (highly portable, avoids multi-threading overhead)
 # _GNU_SOURCE: For Linux builds
@@ -67,6 +79,7 @@ if(EMSCRIPTEN)
         "${MINIZ_DIR}/miniz_tinfl.c"
         "${MINIZ_DIR}/miniz_zip.c"
         ${7ZIP_SOURCES}
+        ${BZIP2_SOURCES}
     )
     target_link_options(kioarch PRIVATE
         "-sEXPORTED_FUNCTIONS=['_kio_open_archive','_kio_open_archive_wasm','_kio_close_archive','_kio_get_entry_count','_kio_get_entry','_kio_extract_entry','_kio_extract_entry_wasm','_malloc','_free']"
@@ -94,6 +107,7 @@ elseif(IOS)
         "${MINIZ_DIR}/miniz_tinfl.c"
         "${MINIZ_DIR}/miniz_zip.c"
         ${7ZIP_SOURCES}
+        ${BZIP2_SOURCES}
     )
 else()
     add_library(kioarch SHARED
@@ -103,6 +117,7 @@ else()
         "${MINIZ_DIR}/miniz_tinfl.c"
         "${MINIZ_DIR}/miniz_zip.c"
         ${7ZIP_SOURCES}
+        ${BZIP2_SOURCES}
     )
 endif()
 

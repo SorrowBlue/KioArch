@@ -32,5 +32,17 @@ public enum class ArchiveFormat(public val extension: String) {
     TAR_GZ("tar.gz"),
 
     /** Gzip Compressed Tar Archive format (.tgz). */
-    TGZ("tgz")
+    TGZ("tgz"),
+
+    /** Bzip2 Compressed format. */
+    BZIP2("bz2"),
+
+    /** Bzip2 Compressed Tar Archive format. */
+    TAR_BZ2("tar.bz2"),
+
+    /** Bzip2 Compressed Tar Archive format (.tbz2). */
+    TBZ2("tbz2"),
+
+    /** Bzip2 Compressed Tar Archive format (.tbz). */
+    TBZ("tbz")
 }

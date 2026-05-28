@@ -161,6 +161,23 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
+    @Suppress("MagicNumber")
+    private fun isBzip2(source: SeekableSource): Boolean {
+        val current = source.position()
+        source.seek(0)
+        val buf = ByteArray(3)
+        val read = source.read(buf, 0, 3)
+        source.seek(current)
+        return read >= 3 &&
+            buf[0] == 0x42.toByte() &&
+            buf[1] == 0x5A.toByte() &&
+            buf[2] == 0x68.toByte()
+    }
+
+    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader {
+        return if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
+    }
+
     public actual fun createReader(source: SeekableSource): ArchiveReader {
         val wasm = wasmModule ?: throwNotInitialized()
 
@@ -210,7 +227,7 @@ public actual object KioArch {
                 wasm._free(errMsgPtr)
             }
 
-            return JsArchiveReader(
+            return wrapIfNeeded(source, JsArchiveReader(
                 wasm,
                 sourceOpaqueId,
                 sourcePtr,
@@ -219,7 +236,7 @@ public actual object KioArch {
                 ptrs.posPtr,
                 ptrs.lenPtr,
                 handle
-            )
+            ))
         } catch (e: Exception) {
             cleanupSourcePtrs(wasm, sourcePtr, ptrs, sourceOpaqueId)
             throw e

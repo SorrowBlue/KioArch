@@ -20,19 +20,37 @@ import java.nio.file.Paths
 import kotlinx.io.files.Path
 
 public actual object KioArch {
+    @Suppress("MagicNumber")
+    private fun isBzip2(source: SeekableSource): Boolean {
+        val current = source.position()
+        source.seek(0)
+        val buf = ByteArray(3)
+        val read = source.read(buf, 0, 3)
+        source.seek(current)
+        return read >= 3 &&
+            buf[0] == 0x42.toByte() &&
+            buf[1] == 0x5A.toByte() &&
+            buf[2] == 0x68.toByte()
+    }
+
+    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader =
+        if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
+
     public actual fun createReader(source: SeekableSource): ArchiveReader {
         loadLibraryLazily()
-        return SeekableArchiveReader(source)
+        return wrapIfNeeded(source, SeekableArchiveReader(source))
     }
 
     public actual fun createReader(byteArray: ByteArray): ArchiveReader {
         loadLibraryLazily()
-        return SeekableArchiveReader(ByteArraySeekableSource(byteArray))
+        val source = ByteArraySeekableSource(byteArray)
+        return wrapIfNeeded(source, SeekableArchiveReader(source))
     }
 
     public actual fun createReader(path: Path): ArchiveReader {
         loadLibraryLazily()
-        return SeekableArchiveReader(PathSeekableSource(Paths.get(path.toString())))
+        val source = PathSeekableSource(Paths.get(path.toString()))
+        return wrapIfNeeded(source, SeekableArchiveReader(source))
     }
 
     private var isLoaded = false

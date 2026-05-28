@@ -27,6 +27,7 @@
 #include "7zFile.h"
 #include "7zTypes.h"
 #include "miniz.h"
+#include "bzlib.h"
 
 #define kInputBufSize ((size_t)1 << 18) // 256KB input buffer for LookToRead2
 
@@ -144,8 +145,19 @@ typedef struct {
 typedef enum {
     ARCHIVE_TYPE_7Z,
     ARCHIVE_TYPE_ZIP,
-    ARCHIVE_TYPE_TARGZ
+    ARCHIVE_TYPE_TARGZ,
+    ARCHIVE_TYPE_BZIP2,
+    ARCHIVE_TYPE_TARBZ2
 } ArchiveType;
+
+typedef struct {
+    bz_stream stream;
+    int is_init;
+    jlong current_source_offset;
+    jlong total_decompressed;
+    unsigned char in_buf[16384];
+    int is_stream_end;
+} Bzip2Decoder;
 
 typedef struct {
     char name[100];
@@ -604,6 +616,179 @@ error:
     return res;
 }
 
+static int validate_tar_header_checksum(const TarHeader *header) {
+    const unsigned char *bytes = (const unsigned char *)header;
+    unsigned int sum = 0;
+    for (int i = 0; i < 512; i++) {
+        if (i >= 148 && i < 156) {
+            sum += ' ';
+        } else {
+            sum += bytes[i];
+        }
+    }
+    char chksum_str[9] = {0};
+    memcpy(chksum_str, header->chksum, 8);
+    unsigned int expected_sum = (unsigned int)strtol(chksum_str, NULL, 8);
+    if (expected_sum == 0) return 0;
+    return (sum == expected_sum);
+}
+
+static SRes init_bzip2_decoder(JNIEnv *env, ArchiveHandle *archive, Bzip2Decoder *decoder) {
+    memset(decoder, 0, sizeof(Bzip2Decoder));
+    decoder->stream.bzalloc = NULL;
+    decoder->stream.bzfree = NULL;
+    decoder->stream.opaque = NULL;
+    int status = BZ2_bzDecompressInit(&decoder->stream, 0, 0);
+    if (status != BZ_OK) {
+        return SZ_ERROR_MEM;
+    }
+    decoder->is_init = 1;
+    decoder->current_source_offset = 0;
+    decoder->total_decompressed = 0;
+    return SZ_OK;
+}
+
+static void free_bzip2_decoder(Bzip2Decoder *decoder) {
+    if (decoder->is_init) {
+        BZ2_bzDecompressEnd(&decoder->stream);
+        decoder->is_init = 0;
+    }
+}
+
+static SRes read_bzip2_decompressed_bytes(JNIEnv *env, ArchiveHandle *archive, Bzip2Decoder *decoder, void *out_buf, size_t out_len, size_t *processed, jlong raw_bzip2_start) {
+    size_t written = 0;
+    *processed = 0;
+    if (decoder->is_stream_end) {
+        return SZ_OK;
+    }
+    while (written < out_len) {
+        if (decoder->stream.avail_in == 0) {
+            jlong src_offset = raw_bzip2_start + decoder->current_source_offset;
+            int r = read_from_source(env, archive, src_offset, decoder->in_buf, sizeof(decoder->in_buf));
+            if (r < 0) return SZ_ERROR_READ;
+            if (r == 0) {
+                break;
+            }
+            decoder->stream.next_in = (char *)decoder->in_buf;
+            decoder->stream.avail_in = (unsigned int)r;
+            decoder->current_source_offset += r;
+        }
+        decoder->stream.next_out = (char *)out_buf + written;
+        decoder->stream.avail_out = (unsigned int)(out_len - written);
+        int status = BZ2_bzDecompress(&decoder->stream);
+        size_t decompressed_this_time = (out_len - written) - decoder->stream.avail_out;
+        written += decompressed_this_time;
+        decoder->total_decompressed += decompressed_this_time;
+        if (status == BZ_STREAM_END) {
+            decoder->is_stream_end = 1;
+            break;
+        }
+        if (status != BZ_OK) {
+            return SZ_ERROR_DATA;
+        }
+    }
+    *processed = written;
+    return SZ_OK;
+}
+
+static SRes skip_bzip2_decompressed_bytes(JNIEnv *env, ArchiveHandle *archive, Bzip2Decoder *decoder, size_t skip_len, jlong raw_bzip2_start) {
+    unsigned char dummy[4096];
+    size_t remaining = skip_len;
+    while (remaining > 0) {
+        size_t to_read = (remaining < sizeof(dummy)) ? remaining : sizeof(dummy);
+        size_t processed = 0;
+        SRes res = read_bzip2_decompressed_bytes(env, archive, decoder, dummy, to_read, &processed, raw_bzip2_start);
+        if (res != SZ_OK) return res;
+        if (processed == 0) return SZ_ERROR_DATA;
+        remaining -= processed;
+    }
+    return SZ_OK;
+}
+
+static SRes scan_tar_bz2_entries(JNIEnv *env, ArchiveHandle *archive, jlong raw_bzip2_start) {
+    Bzip2Decoder decoder;
+    SRes res = init_bzip2_decoder(env, archive, &decoder);
+    if (res != SZ_OK) return res;
+    int capacity = 16;
+    archive->tarGzEntries = (TarGzEntry *)malloc(capacity * sizeof(TarGzEntry));
+    archive->tarGzCount = 0;
+    TarHeader header;
+    int consecutive_zero_blocks = 0;
+    while (1) {
+        size_t processed = 0;
+        jlong header_offset = decoder.total_decompressed;
+        res = read_bzip2_decompressed_bytes(env, archive, &decoder, &header, 512, &processed, raw_bzip2_start);
+        if (res != SZ_OK) goto error;
+        if (processed < 512) {
+            break;
+        }
+        int is_zero = 1;
+        unsigned char *p = (unsigned char *)&header;
+        for (int i = 0; i < 512; i++) {
+            if (p[i] != 0) {
+                is_zero = 0;
+                break;
+            }
+        }
+        if (is_zero) {
+            consecutive_zero_blocks++;
+            if (consecutive_zero_blocks >= 2) {
+                break;
+            }
+            continue;
+        }
+        consecutive_zero_blocks = 0;
+        char name[101] = {0};
+        memcpy(name, header.name, 100);
+        char full_name[257] = {0};
+        if (strncmp(header.magic, "ustar", 5) == 0) {
+            char prefix[156] = {0};
+            memcpy(prefix, header.prefix, 155);
+            if (strlen(prefix) > 0) {
+                snprintf(full_name, sizeof(full_name), "%s/%s", prefix, name);
+            } else {
+                strncpy(full_name, name, sizeof(full_name) - 1);
+            }
+        } else {
+            strncpy(full_name, name, sizeof(full_name) - 1);
+        }
+        char size_str[13] = {0};
+        memcpy(size_str, header.size, 12);
+        jlong file_size = (jlong)strtol(size_str, NULL, 8);
+        jboolean is_dir = (header.typeflag == '5') ? JNI_TRUE : JNI_FALSE;
+        if (archive->tarGzCount >= capacity) {
+            capacity *= 2;
+            TarGzEntry *new_entries = (TarGzEntry *)realloc(archive->tarGzEntries, capacity * sizeof(TarGzEntry));
+            if (new_entries == NULL) {
+                res = SZ_ERROR_MEM;
+                goto error;
+            }
+            archive->tarGzEntries = new_entries;
+        }
+        TarGzEntry *entry = &archive->tarGzEntries[archive->tarGzCount];
+        entry->name = strdup(full_name);
+        entry->size = file_size;
+        entry->is_dir = is_dir;
+        entry->header_offset = header_offset;
+        entry->data_offset = decoder.total_decompressed;
+        archive->tarGzCount++;
+        jlong skip_size = (file_size + 511) & ~511;
+        res = skip_bzip2_decompressed_bytes(env, archive, &decoder, (size_t)skip_size, raw_bzip2_start);
+        if (res != SZ_OK) goto error;
+    }
+    free_bzip2_decoder(&decoder);
+    return SZ_OK;
+error:
+    free_bzip2_decoder(&decoder);
+    for (int i = 0; i < archive->tarGzCount; i++) {
+        free(archive->tarGzEntries[i].name);
+    }
+    free(archive->tarGzEntries);
+    archive->tarGzEntries = NULL;
+    archive->tarGzCount = 0;
+    return res;
+}
+
 // JNI function to open a 7z or ZIP archive from SeekableSource with auto format detection
 JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
     JNIEnv *env, jobject obj, jobject kotlinSource
@@ -616,6 +801,7 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
     int isZip = 0;
     int is7z = 0;
     int isTarGz = 0;
+    int isBzip2 = 0;
 
     CrcGenerateTable();
 
@@ -689,6 +875,10 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         // Check Gzip Magic: 1F 8B
         else if (magic[0] == 0x1F && magic[1] == (jbyte)0x8B) {
             isTarGz = 1;
+        }
+        // Check Bzip2 Magic: BZh (42 5A 68)
+        else if (bytesRead >= 3 && magic[0] == 0x42 && magic[1] == 0x5A && magic[2] == 0x68) {
+            isBzip2 = 1;
         }
     }
     (*env)->DeleteLocalRef(env, initialBuffer);
@@ -777,9 +967,66 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
             free(archive);
             return 0;
         }
+    } else if (isBzip2) {
+        archive->type = ARCHIVE_TYPE_BZIP2;
+        jlong resetPos = 0;
+        (*env)->CallVoidMethod(env, kotlinSource, archive->inStream.seekMethod, resetPos);
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+            free(archive);
+            return 0;
+        }
+
+        Bzip2Decoder decoder;
+        SRes initRes = init_bzip2_decoder(env, archive, &decoder);
+        if (initRes == SZ_OK) {
+            TarHeader header;
+            size_t processed = 0;
+            SRes readRes = read_bzip2_decompressed_bytes(env, archive, &decoder, &header, 512, &processed, 0);
+            free_bzip2_decoder(&decoder);
+
+            // Reset stream again before scanning or returning
+            (*env)->CallVoidMethod(env, kotlinSource, archive->inStream.seekMethod, resetPos);
+            if ((*env)->ExceptionCheck(env)) {
+                (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+                free(archive);
+                return 0;
+            }
+
+            if (readRes == SZ_OK && processed >= 512 && validate_tar_header_checksum(&header)) {
+                archive->type = ARCHIVE_TYPE_TARBZ2;
+                SRes scanRes = scan_tar_bz2_entries(env, archive, 0);
+                if (scanRes != SZ_OK) {
+                    throw_7z_error(env, scanRes, "scan tar.bz2 entries");
+                    (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+                    free(archive);
+                    return 0;
+                }
+            } else {
+                archive->type = ARCHIVE_TYPE_BZIP2;
+                archive->tarGzCount = 1;
+                archive->tarGzEntries = (TarGzEntry *)malloc(sizeof(TarGzEntry));
+                if (archive->tarGzEntries != NULL) {
+                    archive->tarGzEntries[0].name = strdup("extracted_data");
+                    archive->tarGzEntries[0].size = -1;
+                    archive->tarGzEntries[0].is_dir = JNI_FALSE;
+                    archive->tarGzEntries[0].header_offset = 0;
+                    archive->tarGzEntries[0].data_offset = 0;
+                } else {
+                    (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+                    free(archive);
+                    return 0;
+                }
+            }
+        } else {
+            throw_7z_error(env, initRes, "init bzip2 decoder");
+            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+            free(archive);
+            return 0;
+        }
     } else {
         // Unsupported format
-        throw_archive_exception(env, "com/sorrowblue/kioarch/ArchiveInvalidException", "Unsupported archive format (only 7z, ZIP and tar.gz are supported)");
+        throw_archive_exception(env, "com/sorrowblue/kioarch/ArchiveInvalidException", "Unsupported archive format (only 7z, ZIP, tar.gz, bz2 and tar.bz2 are supported)");
         (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
         free(archive);
         return 0;
@@ -807,7 +1054,7 @@ JNIEXPORT void JNICALL Java_com_sorrowblue_kioarch_KioArchJni_closeArchive(
         if (archive->isZipInit) {
             mz_zip_reader_end(&archive->zipArchive);
         }
-    } else if (archive->type == ARCHIVE_TYPE_TARGZ) {
+    } else if (archive->type == ARCHIVE_TYPE_TARGZ || archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
         if (archive->tarGzEntries != NULL) {
             for (int i = 0; i < archive->tarGzCount; i++) {
                 free(archive->tarGzEntries[i].name);
@@ -910,7 +1157,7 @@ JNIEXPORT jobject JNICALL Java_com_sorrowblue_kioarch_KioArchJni_getEntries(
         count = (jint)archive->db.NumFiles;
     } else if (archive->type == ARCHIVE_TYPE_ZIP) {
         count = (jint)mz_zip_reader_get_num_files(&archive->zipArchive);
-    } else if (archive->type == ARCHIVE_TYPE_TARGZ) {
+    } else if (archive->type == ARCHIVE_TYPE_TARGZ || archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
         count = (jint)archive->tarGzCount;
     }
 
@@ -974,7 +1221,7 @@ JNIEXPORT jobject JNICALL Java_com_sorrowblue_kioarch_KioArchJni_getEntries(
                 isDirs[i] = JNI_FALSE;
                 crcs[i] = 0;
             }
-        } else if (archive->type == ARCHIVE_TYPE_TARGZ) {
+        } else if (archive->type == ARCHIVE_TYPE_TARGZ || archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
             TarGzEntry *entry = &archive->tarGzEntries[i];
             jname = create_jstring_from_bytes(env, entry->name, 1);
             sizes[i] = entry->size;
@@ -1178,6 +1425,74 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
         if (res != SZ_OK || bytesWritten < (size_t)entry->size) {
             return JNI_FALSE;
         }
+    } else if (archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
+        if (index < 0 || index >= archive->tarGzCount) return JNI_FALSE;
+        TarGzEntry *entry = &archive->tarGzEntries[index];
+
+        Bzip2Decoder decoder;
+        SRes res = init_bzip2_decoder(env, archive, &decoder);
+        if (res != SZ_OK) return JNI_FALSE;
+
+        if (archive->type == ARCHIVE_TYPE_TARBZ2) {
+            res = skip_bzip2_decompressed_bytes(env, archive, &decoder, (size_t)entry->data_offset, 0);
+            if (res != SZ_OK) {
+                free_bzip2_decoder(&decoder);
+                return JNI_FALSE;
+            }
+        }
+
+        jclass sinkClass = (*env)->GetObjectClass(env, kotlinSink);
+        jmethodID writeMethod = (*env)->GetMethodID(env, sinkClass, "write", "([BII)V");
+        if (writeMethod == NULL) {
+            free_bzip2_decoder(&decoder);
+            return JNI_FALSE;
+        }
+
+        size_t bytesWritten = 0;
+        size_t chunkSize = 65536;
+        jbyteArray chunkArray = (*env)->NewByteArray(env, (jsize)chunkSize);
+        if (chunkArray == NULL) {
+            free_bzip2_decoder(&decoder);
+            return JNI_FALSE;
+        }
+
+        unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
+        if (outBuffer == NULL) {
+            (*env)->DeleteLocalRef(env, chunkArray);
+            free_bzip2_decoder(&decoder);
+            return JNI_FALSE;
+        }
+
+        jlong targetSize = entry->size;
+        int isInfinite = (targetSize < 0);
+
+        while (isInfinite || (bytesWritten < (size_t)targetSize)) {
+            size_t remaining = isInfinite ? chunkSize : ((size_t)targetSize - bytesWritten);
+            size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
+            size_t processed = 0;
+
+            res = read_bzip2_decompressed_bytes(env, archive, &decoder, outBuffer, currentChunk, &processed, 0);
+            if (res != SZ_OK || processed == 0) {
+                break;
+            }
+
+            (*env)->SetByteArrayRegion(env, chunkArray, 0, (jsize)processed, (jbyte *)outBuffer);
+            (*env)->CallVoidMethod(env, kotlinSink, writeMethod, chunkArray, 0, (jint)processed);
+
+            if ((*env)->ExceptionCheck(env)) {
+                break;
+            }
+
+            bytesWritten += processed;
+        }
+
+        free(outBuffer);
+        (*env)->DeleteLocalRef(env, chunkArray);
+        free_bzip2_decoder(&decoder);
+
+        if (res != SZ_OK || (!isInfinite && bytesWritten < (size_t)targetSize)) {
+            return JNI_FALSE;
+        }
     }
 
     return (*env)->ExceptionCheck(env) ? JNI_FALSE : JNI_TRUE;
@@ -1329,6 +1644,63 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntryDi
         free_gzip_decoder(&decoder);
 
         if (res != SZ_OK || bytesWritten < (size_t)entry->size) {
+            return JNI_FALSE;
+        }
+    } else if (archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
+        if (index < 0 || index >= archive->tarGzCount) return JNI_FALSE;
+        TarGzEntry *entry = &archive->tarGzEntries[index];
+
+        Bzip2Decoder decoder;
+        SRes res = init_bzip2_decoder(env, archive, &decoder);
+        if (res != SZ_OK) return JNI_FALSE;
+
+        if (archive->type == ARCHIVE_TYPE_TARBZ2) {
+            res = skip_bzip2_decompressed_bytes(env, archive, &decoder, (size_t)entry->data_offset, 0);
+            if (res != SZ_OK) {
+                free_bzip2_decoder(&decoder);
+                return JNI_FALSE;
+            }
+        }
+
+        size_t bytesWritten = 0;
+        size_t chunkSize = 65536;
+
+        unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
+        if (outBuffer == NULL) {
+            free_bzip2_decoder(&decoder);
+            return JNI_FALSE;
+        }
+
+        jlong targetSize = entry->size;
+        int isInfinite = (targetSize < 0);
+
+        while (isInfinite || (bytesWritten < (size_t)targetSize)) {
+            size_t remaining = isInfinite ? chunkSize : ((size_t)targetSize - bytesWritten);
+            size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
+            size_t processed = 0;
+
+            res = read_bzip2_decompressed_bytes(env, archive, &decoder, outBuffer, currentChunk, &processed, 0);
+            if (res != SZ_OK || processed == 0) {
+                break;
+            }
+
+            jobject directBuffer = (*env)->NewDirectByteBuffer(env, outBuffer, (jlong)processed);
+            if (directBuffer != NULL) {
+                (*env)->CallVoidMethod(env, callback, onDataMethod, directBuffer);
+                (*env)->DeleteLocalRef(env, directBuffer);
+            }
+
+            if ((*env)->ExceptionCheck(env)) {
+                break;
+            }
+
+            bytesWritten += processed;
+        }
+
+        free(outBuffer);
+        free_bzip2_decoder(&decoder);
+
+        if (res != SZ_OK || (!isInfinite && bytesWritten < (size_t)targetSize)) {
             return JNI_FALSE;
         }
     }
