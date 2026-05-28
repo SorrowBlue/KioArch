@@ -73,3 +73,11 @@ public expect object KioArch {
      */
     public fun createReader(path: Path): ArchiveReader
 }
+
+/**
+ * Returns a list of file extensions supported by KioArch.
+ *
+ * @return a list of supported file extensions (e.g., "7z", "zip", "tar.gz", "tgz")
+ */
+public fun KioArch.getSupportedExtensions(): List<String> =
+    ArchiveFormat.entries.map(ArchiveFormat::extension)

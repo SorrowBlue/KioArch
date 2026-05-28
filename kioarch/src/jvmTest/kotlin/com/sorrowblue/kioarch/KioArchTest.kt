@@ -26,6 +26,13 @@ class KioArchTest {
     }
 
     @Test
+    fun testSupportedExtensions() {
+        val extensions = KioArch.getSupportedExtensions()
+        val expected = listOf("7z", "zip", "tar.gz", "tgz")
+        assertEquals(expected, extensions)
+    }
+
+    @Test
     fun testByteArraySeekableSource() {
         val data = byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
         val source = ByteArraySeekableSource(data)
