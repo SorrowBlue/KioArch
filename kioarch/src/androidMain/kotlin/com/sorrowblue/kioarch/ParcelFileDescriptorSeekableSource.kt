@@ -29,12 +29,17 @@ import java.nio.ByteBuffer
  * @param pfd the parcel file descriptor to wrap
  */
 public class ParcelFileDescriptorSeekableSource(private val pfd: ParcelFileDescriptor) :
-    SeekableSource {
+    DirectSeekableSource {
     private val fis = ParcelFileDescriptor.AutoCloseInputStream(pfd)
     private val channel = fis.channel
 
     public override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         val byteBuffer = ByteBuffer.wrap(buffer, offset, length)
+        val readBytes = channel.read(byteBuffer)
+        return if (readBytes == 0 && channel.position() >= channel.size()) -1 else readBytes
+    }
+
+    public override fun read(byteBuffer: ByteBuffer): Int {
         val readBytes = channel.read(byteBuffer)
         return if (readBytes == 0 && channel.position() >= channel.size()) -1 else readBytes
     }

@@ -16,6 +16,9 @@
 
 package com.sorrowblue.kioarch
 
+import java.nio.file.Paths
+import kotlinx.io.files.Path
+
 public actual object KioArch {
     public actual fun createReader(source: SeekableSource): ArchiveReader {
         loadLibraryLazily()
@@ -27,9 +30,9 @@ public actual object KioArch {
         return SeekableArchiveReader(ByteArraySeekableSource(byteArray))
     }
 
-    public actual fun createReader(path: kotlinx.io.files.Path): ArchiveReader {
+    public actual fun createReader(path: Path): ArchiveReader {
         loadLibraryLazily()
-        return SeekableArchiveReader(PathSeekableSource(java.nio.file.Paths.get(path.toString())))
+        return SeekableArchiveReader(PathSeekableSource(Paths.get(path.toString())))
     }
 
     private var isLoaded = false

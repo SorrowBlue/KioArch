@@ -5,13 +5,16 @@ import android.os.ParcelFileDescriptor
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.io.FileOutputStream
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.io.Buffer
+import kotlinx.io.files.Path
 import kotlinx.io.readByteArray
 
 /**
@@ -120,7 +123,7 @@ class AndroidKioArchTest {
 
                 // Read out bytes and calculate CRC32 to verify integrity
                 val extractedBytes = buffer.readByteArray()
-                val crc = java.util.zip.CRC32()
+                val crc = CRC32()
                 crc.update(extractedBytes)
 
                 if (fileEntry.crc != 0L) {
@@ -160,7 +163,7 @@ class AndroidKioArchTest {
             // 2. Verify Thread Safety
             val numThreads = 5
             val threads = List(numThreads) {
-                kotlin.concurrent.thread(start = false) {
+                thread(start = false) {
                     repeat(20) {
                         val list = reader.getEntries()
                         assertEquals(1, list.size)
@@ -213,7 +216,7 @@ class AndroidKioArchTest {
     @Test
     fun testRealZipExtractionWithPath() {
         val file = createTempZipFile()
-        val path = kotlinx.io.files.Path(file.absolutePath)
+        val path = Path(file.absolutePath)
         KioArch.createReader(path).use { reader ->
             val entries = reader.getEntries()
             assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
