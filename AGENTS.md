@@ -24,6 +24,7 @@ AIエージェントの具体的な振る舞い、開発ルール、および手
   - [技術相談 `/ask` (`ask.md`)](file:///d:/KioArch/.agent/workflows/ask.md): 完全読み取り専用で、設計相談やコードの挙動質問に答える手順。
   - [コードレビュー `/review` (`review.md`)](file:///d:/KioArch/.agent/workflows/review.md): 正確性、バグ、落とし穴の有無、スタイルを一貫して評価する手順。
   - [コード解説 `/explain` (`explain.md`)](file:///d:/KioArch/.agent/workflows/explain.md): 特定のロジックやデータフロー、メモリ管理を詳細に解説する手順。
+  - [Issue情報取得 `/issue` (`issue.md`)](file:///d:/KioArch/.agent/workflows/issue.md): 指定したGitHub Issue情報を自動取得・解析・要約する手順。
 
 ---
 
