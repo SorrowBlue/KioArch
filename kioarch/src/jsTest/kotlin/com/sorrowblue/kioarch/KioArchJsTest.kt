@@ -36,9 +36,21 @@ class KioArchJsTest {
             @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
             return Promise.resolve(module)
         }
-        val createKioArchModule = js("require('./natives/kioarch.js')")
-        val config = js("({ locateFile: (path) => './kotlin/natives/' + path })")
-        val promise = createKioArchModule(config) as Promise<JsAny>
+        val isNode = js("typeof process !== 'undefined' && process.versions != null && process.versions.node != null") as Boolean
+        val promise = if (isNode) {
+            val createKioArchModule = js("eval('require')('./natives/kioarch.js')")
+            val config = js("({ locateFile: (path) => './kotlin/natives/' + path })")
+            createKioArchModule(config) as Promise<JsAny>
+        } else {
+            val locateFile = js("function(path) { return '/base/kotlin/natives/' + path; }")
+            val config = js("({ locateFile: locateFile })")
+            val initFn = js("globalThis.createKioArchModule")
+            if (initFn == null) {
+                Promise.reject(IllegalStateException("globalThis.createKioArchModule is not defined"))
+            } else {
+                initFn(config) as Promise<JsAny>
+            }
+        }
         return promise.then { loaded ->
             KioArch.initialize(loaded)
             wasmModule = loaded
@@ -95,107 +107,120 @@ class KioArchJsTest {
     @Test
     fun testRealZipExtraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
-            val bytes = readTestFile("TEST_ZIP_PATH")
-            KioArch.createReader(bytes).use { reader ->
-                val entries = reader.getEntries()
-                assertTrue(entries.isNotEmpty(), "ZIP should have entries")
-                assertEquals(2, entries.size, "ZIP should contain exactly 2 entries")
+            readTestFile("TEST_ZIP_PATH").then { bytes ->
+                KioArch.createReader(bytes).use { reader ->
+                    val entries = reader.getEntries()
+                    assertTrue(entries.isNotEmpty(), "ZIP should have entries")
+                    assertEquals(2, entries.size, "ZIP should contain exactly 2 entries")
 
-                val entry1 = entries.first { it.name == "dummy1.txt" }
-                val buffer1 = Buffer()
-                reader.extractEntry(entry1, buffer1)
-                assertEquals("This is a dummy text file inside zip.", buffer1.readByteArray().decodeToString())
+                    val entry1 = entries.first { it.name == "dummy1.txt" }
+                    val buffer1 = Buffer()
+                    reader.extractEntry(entry1, buffer1)
+                    assertEquals("This is a dummy text file inside zip.", buffer1.readByteArray().decodeToString())
 
-                val entry2 = entries.first { it.name == "dummy2.txt" }
-                val buffer2 = Buffer()
-                reader.extractEntry(entry2, buffer2)
-                assertEquals(1200L, buffer2.size)
+                    val entry2 = entries.first { it.name == "dummy2.txt" }
+                    val buffer2 = Buffer()
+                    reader.extractEntry(entry2, buffer2)
+                    assertEquals(1200L, buffer2.size)
+                }
+                null
             }
-            null
         }
     }
 
     @Test
     fun testReal7zExtraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
-            val bytes = readTestFile("TEST_7Z_PATH")
-            KioArch.createReader(bytes).use { reader ->
-                val entries = reader.getEntries()
-                assertTrue(entries.isNotEmpty(), "7z should have entries")
-                assertEquals(2, entries.size, "7z should contain exactly 2 entries")
+            readTestFile("TEST_7Z_PATH").then { bytes ->
+                KioArch.createReader(bytes).use { reader ->
+                    val entries = reader.getEntries()
+                    assertTrue(entries.isNotEmpty(), "7z should have entries")
+                    assertEquals(2, entries.size, "7z should contain exactly 2 entries")
 
-                val entry1 = entries.first { it.name == "dummy1.txt" }
-                val buffer1 = Buffer()
-                reader.extractEntry(entry1, buffer1)
-                assertEquals("This is a dummy text file inside 7z.", buffer1.readByteArray().decodeToString())
+                    val entry1 = entries.first { it.name == "dummy1.txt" }
+                    val buffer1 = Buffer()
+                    reader.extractEntry(entry1, buffer1)
+                    assertEquals("This is a dummy text file inside 7z.", buffer1.readByteArray().decodeToString())
+                }
+                null
             }
-            null
         }
     }
 
     @Test
     fun testZipShiftJisFilename(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
-            val bytes = readTestFile("TEST_SJIS_ZIP_PATH")
-            KioArch.createReader(bytes).use { reader ->
-                val entries = reader.getEntries()
-                val expectedNames = listOf(
-                    "テスト_日本語ファイル名_Shift_JIS.txt",
-                    "dame_moji_ソ表能予.txt",
-                    "half_width_ｶﾀｶﾅﾃｽﾄ.txt",
-                    "cp932_extensions_①Ⅳ髙﨑.txt"
-                )
-                assertEquals(expectedNames.size, entries.size, "ZIP should contain all CP932 edge case entries")
-                for (i in expectedNames.indices) {
-                    assertEquals(expectedNames[i], entries[i].name, "Decoded name should match CP932 original")
+            readTestFile("TEST_SJIS_ZIP_PATH").then { bytes ->
+                KioArch.createReader(bytes).use { reader ->
+                    val entries = reader.getEntries()
+                    val expectedNames = listOf(
+                        "テスト_日本語ファイル名_Shift_JIS.txt",
+                        "dame_moji_ソ表能予.txt",
+                        "half_width_ｶﾀｶﾅﾃｽﾄ.txt",
+                        "cp932_extensions_①Ⅳ髙﨑.txt"
+                    )
+                    assertEquals(expectedNames.size, entries.size, "ZIP should contain all CP932 edge case entries")
+                    for (i in expectedNames.indices) {
+                        assertEquals(expectedNames[i], entries[i].name, "Decoded name should match CP932 original")
+                    }
                 }
+                null
             }
-            null
         }
     }
 
     @Test
     fun testPathNormalization(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
-            val bytes = readTestFile("TEST_PATH_NORMAL_ZIP_PATH")
-            KioArch.createReader(bytes).use { reader ->
-                val entries = reader.getEntries()
-                assertEquals(1, entries.size)
-                assertEquals("directory/subdir/file.txt", entries[0].name, "Backslashes should be normalized to forward slashes")
+            readTestFile("TEST_PATH_NORMAL_ZIP_PATH").then { bytes ->
+                KioArch.createReader(bytes).use { reader ->
+                    val entries = reader.getEntries()
+                    assertEquals(2, entries.size)
+                    assertEquals("directory/subdir/file1.txt", entries[0].name, "Backslashes should be normalized to forward slashes")
+                    assertEquals("directory/subdir/file2.txt", entries[1].name, "Backslashes should be normalized to forward slashes")
+                }
+                null
             }
-            null
         }
     }
 
     @Test
     fun testLarge7zExtraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
-            val bytes = readTestFile("LARGE_7Z_PATH")
-            KioArch.createReader(bytes).use { reader ->
-                val entries = reader.getEntries()
-                assertEquals(1, entries.size)
-                assertEquals("large_dummy.bin", entries[0].name)
-                assertEquals(10L * 1024 * 1024, entries[0].size, "Uncompressed size should be 10MB")
+            readTestFile("LARGE_7Z_PATH").then { bytes ->
+                KioArch.createReader(bytes).use { reader ->
+                    val entries = reader.getEntries()
+                    val numFiles = 100
+                    assertEquals(numFiles, entries.size)
+                    
+                    val sizePerFile = (10L * 1024 * 1024) / numFiles
+                    for (i in 0 until numFiles) {
+                        val entry = entries[i]
+                        assertEquals("large_dummy_$i.bin", entry.name)
+                        assertEquals(sizePerFile, entry.size, "Uncompressed size should be 100KB")
 
-                val entry = entries[0]
-                val buffer = Buffer()
-                // Decodes large 7z to test ALLOW_MEMORY_GROWTH heap resize robustness
-                reader.extractEntry(entry, buffer)
-                assertEquals(10L * 1024 * 1024, buffer.size)
+                        val buffer = Buffer()
+                        reader.extractEntry(entry, buffer)
+                        assertEquals(sizePerFile, buffer.size)
+                    }
+                }
+                null
             }
-            null
         }
     }
 
     @Test
     fun testNodeJsPathReader(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
-            val envPath = js("process.env['TEST_ZIP_PATH']") as? String
-                ?: throw IllegalStateException("TEST_ZIP_PATH not set")
-            KioArch.createReader(Path(envPath)).use { reader ->
-                val entries = reader.getEntries()
-                assertTrue(entries.isNotEmpty())
-                assertEquals(2, entries.size)
+            val isNode = js("typeof process !== 'undefined' && process.versions != null && process.versions.node != null") as Boolean
+            if (isNode) {
+                val envPath = js("process.env['TEST_ZIP_PATH']") as? String
+                    ?: throw IllegalStateException("TEST_ZIP_PATH not set")
+                KioArch.createReader(Path(envPath)).use { reader ->
+                    val entries = reader.getEntries()
+                    assertTrue(entries.isNotEmpty())
+                    assertEquals(2, entries.size)
+                }
             }
             null
         }
@@ -223,43 +248,45 @@ class KioArchJsTest {
     @Test
     fun testRealBzip2Extraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
-            val bytes = readTestFile("TEST_BZ2_PATH")
-            KioArch.createReader(bytes).use { reader ->
-                assertTrue(reader is Bzip2ArchiveReader)
-                val entries = reader.getEntries()
-                assertEquals(1, entries.size)
-                val entry = entries[0]
-                assertEquals("extracted_data", entry.name)
-                assertEquals(-1L, entry.size)
+            readTestFile("TEST_BZ2_PATH").then { bytes ->
+                KioArch.createReader(bytes).use { reader ->
+                    assertTrue(reader is Bzip2ArchiveReader)
+                    val entries = reader.getEntries()
+                    assertEquals(1, entries.size)
+                    val entry = entries[0]
+                    assertEquals("extracted_data", entry.name)
+                    assertEquals(-1L, entry.size)
 
-                val buffer = Buffer()
-                reader.extractEntry(entry, buffer)
-                assertEquals("This is a dummy text file compressed using bzip2.", buffer.readByteArray().decodeToString())
+                    val buffer = Buffer()
+                    reader.extractEntry(entry, buffer)
+                    assertEquals("This is a dummy text file compressed using bzip2.", buffer.readByteArray().decodeToString())
+                }
+                null
             }
-            null
         }
     }
 
     @Test
     fun testRealTarBz2Extraction(): Promise<JsAny?> {
         return loadModuleIfNeeded().then {
-            val bytes = readTestFile("TEST_TARBZ2_PATH")
-            KioArch.createReader(bytes).use { reader ->
-                assertTrue(reader is Bzip2ArchiveReader)
-                val entries = reader.getEntries()
-                assertEquals(2, entries.size)
+            readTestFile("TEST_TARBZ2_PATH").then { bytes ->
+                KioArch.createReader(bytes).use { reader ->
+                    assertTrue(reader is Bzip2ArchiveReader)
+                    val entries = reader.getEntries()
+                    assertEquals(2, entries.size)
 
-                val entry1 = entries.first { it.name == "dummy1.txt" }
-                val buffer1 = Buffer()
-                reader.extractEntry(entry1, buffer1)
-                assertEquals("This is a dummy text file inside tar.bz2.", buffer1.readByteArray().decodeToString())
+                    val entry1 = entries.first { it.name == "dummy1.txt" }
+                    val buffer1 = Buffer()
+                    reader.extractEntry(entry1, buffer1)
+                    assertEquals("This is a dummy text file inside tar.bz2.", buffer1.readByteArray().decodeToString())
 
-                val entry2 = entries.first { it.name == "dummy2.txt" }
-                val buffer2 = Buffer()
-                reader.extractEntry(entry2, buffer2)
-                assertEquals("Some more dummy content in the second tar.bz2 file.", buffer2.readByteArray().decodeToString())
+                    val entry2 = entries.first { it.name == "dummy2.txt" }
+                    val buffer2 = Buffer()
+                    reader.extractEntry(entry2, buffer2)
+                    assertEquals("Some more dummy content in the second tar.bz2 file.", buffer2.readByteArray().decodeToString())
+                }
+                null
             }
-            null
         }
     }
 }

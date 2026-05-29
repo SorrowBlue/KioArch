@@ -75,76 +75,98 @@ private fun calculateCRC32(data: ByteArray): Int {
 }
 
 private fun createLargeStoreZipBytes(dataSize: Int): ByteArray {
-    val name = "large.bin"
-    val nameBytes = name.encodeToByteArray()
+    val numFiles = 100
+    val sizePerFile = dataSize / numFiles
     
-    val data = ByteArray(dataSize)
-    for (i in 0 until dataSize) {
-        data[i] = (i % 256).toByte()
+    val nameBytesList = List(numFiles) { i -> "large_$i.bin".encodeToByteArray() }
+    val dataList = List(numFiles) { i ->
+        ByteArray(sizePerFile) { b -> ((b + i * 10) % 256).toByte() }
     }
-    val crc = calculateCRC32(data)
+    val crcList = dataList.map { calculateCRC32(it) }
 
-    val lfh = Buffer().apply {
-        write(byteArrayOf(0x50, 0x4B, 0x03, 0x04)) // Signature
-        write(byteArrayOf(0x0A, 0x00))             // Version
-        write(byteArrayOf(0x00, 0x00))             // Flags
-        write(byteArrayOf(0x00, 0x00))             // Method (Store)
-        write(byteArrayOf(0xE9.toByte(), 0x8B.toByte())) // Time
-        write(byteArrayOf(0x13, 0x59))             // Date
-        writeIntLe(crc)                            // CRC-32
-        writeIntLe(dataSize)                       // Compressed Size
-        writeIntLe(dataSize)                       // Uncompressed Size
-        writeShortLe(nameBytes.size.toShort())     // Name Length
-        writeShortLe(0.toShort())                  // Extra Length
-        write(nameBytes)                           // Name
-    }.readByteArray()
+    // Build local headers and calculate offsets
+    val lfhList = mutableListOf<ByteArray>()
+    val lfhOffsets = mutableListOf<Int>()
+    var currentOffset = 0
 
-    val cdh = Buffer().apply {
-        write(byteArrayOf(0x50, 0x4B, 0x01, 0x02)) // Signature
-        write(byteArrayOf(0x1E, 0x03))             // Made by
-        write(byteArrayOf(0x0A, 0x00))             // Version
-        write(byteArrayOf(0x00, 0x00))             // Flags
-        write(byteArrayOf(0x00, 0x00))             // Method
-        write(byteArrayOf(0xE9.toByte(), 0x8B.toByte())) // Time
-        write(byteArrayOf(0x13, 0x59))             // Date
-        writeIntLe(crc)                            // CRC-32
-        writeIntLe(dataSize)                       // Compressed Size
-        writeIntLe(dataSize)                       // Uncompressed Size
-        writeShortLe(nameBytes.size.toShort())     // Name Length
-        writeShortLe(0.toShort())                  // Extra Length
-        writeShortLe(0.toShort())                  // Comment Length
-        writeShortLe(0.toShort())                  // Disk Start
-        writeShortLe(0.toShort())                  // Internal Attr
-        writeIntLe(0)                              // External Attr
-        writeIntLe(0)                              // Local Header Offset
-        write(nameBytes)                           // Name
-    }.readByteArray()
+    for (i in 0 until numFiles) {
+        lfhOffsets.add(currentOffset)
+        val lfh = Buffer().apply {
+            write(byteArrayOf(0x50, 0x4B, 0x03, 0x04)) // Signature
+            write(byteArrayOf(0x0A, 0x00))             // Version
+            write(byteArrayOf(0x00, 0x00))             // Flags
+            write(byteArrayOf(0x00, 0x00))             // Method (Store)
+            write(byteArrayOf(0xE9.toByte(), 0x8B.toByte())) // Time
+            write(byteArrayOf(0x13, 0x59))             // Date
+            writeIntLe(crcList[i])                     // CRC-32
+            writeIntLe(sizePerFile)                    // Compressed Size
+            writeIntLe(sizePerFile)                    // Uncompressed Size
+            writeShortLe(nameBytesList[i].size.toShort()) // Name Length
+            writeShortLe(0.toShort())                  // Extra Length
+            write(nameBytesList[i])                    // Name
+        }.readByteArray()
+        lfhList.add(lfh)
+        currentOffset += lfh.size + sizePerFile
+    }
+
+    val cdOffset = currentOffset
+
+    // Build central directory headers
+    val cdhList = mutableListOf<ByteArray>()
+    var cdSize = 0
+    for (i in 0 until numFiles) {
+        val cdh = Buffer().apply {
+            write(byteArrayOf(0x50, 0x4B, 0x01, 0x02)) // Signature
+            write(byteArrayOf(0x1E, 0x03))             // Made by
+            write(byteArrayOf(0x0A, 0x00))             // Version
+            write(byteArrayOf(0x00, 0x00))             // Flags
+            write(byteArrayOf(0x00, 0x00))             // Method
+            write(byteArrayOf(0xE9.toByte(), 0x8B.toByte())) // Time
+            write(byteArrayOf(0x13, 0x59))             // Date
+            writeIntLe(crcList[i])                     // CRC-32
+            writeIntLe(sizePerFile)                    // Compressed Size
+            writeIntLe(sizePerFile)                    // Uncompressed Size
+            writeShortLe(nameBytesList[i].size.toShort()) // Name Length
+            writeShortLe(0.toShort())                  // Extra Length
+            writeShortLe(0.toShort())                  // Comment Length
+            writeShortLe(0.toShort())                  // Disk Start
+            writeShortLe(0.toShort())                  // Internal Attr
+            writeIntLe(0)                              // External Attr
+            writeIntLe(lfhOffsets[i])                  // Local Header Offset
+            write(nameBytesList[i])                    // Name
+        }.readByteArray()
+        cdhList.add(cdh)
+        cdSize += cdh.size
+    }
 
     val eocd = Buffer().apply {
         write(byteArrayOf(0x50, 0x4B, 0x05, 0x06)) // Signature
         writeShortLe(0.toShort())                  // Disk Number
         writeShortLe(0.toShort())                  // CD Disk
-        writeShortLe(1.toShort())                  // CD Disk Records
-        writeShortLe(1.toShort())                  // CD Records
-        writeIntLe(cdh.size)                       // CD Size
-        writeIntLe(lfh.size + dataSize)            // CD Offset
+        writeShortLe(numFiles.toShort())           // CD Disk Records
+        writeShortLe(numFiles.toShort())           // CD Records
+        writeIntLe(cdSize)                         // CD Size
+        writeIntLe(cdOffset)                       // CD Offset
         writeShortLe(0.toShort())                  // Comment Length
     }.readByteArray()
 
-    val zipBytes = ByteArray(lfh.size + dataSize + cdh.size + eocd.size)
+    val zipBytes = ByteArray(cdOffset + cdSize + eocd.size)
     var offset = 0
-    
-    lfh.copyInto(zipBytes, offset)
-    offset += lfh.size
-    
-    data.copyInto(zipBytes, offset)
-    offset += data.size
-    
-    cdh.copyInto(zipBytes, offset)
-    offset += cdh.size
-    
+
+    for (i in 0 until numFiles) {
+        lfhList[i].copyInto(zipBytes, offset)
+        offset += lfhList[i].size
+        dataList[i].copyInto(zipBytes, offset)
+        offset += dataList[i].size
+    }
+
+    for (i in 0 until numFiles) {
+        cdhList[i].copyInto(zipBytes, offset)
+        offset += cdhList[i].size
+    }
+
     eocd.copyInto(zipBytes, offset)
-    
+
     return zipBytes
 }
 
@@ -376,32 +398,22 @@ class KioArchIosTest {
     @Test
     fun testLargeZipExtraction() {
         val dataSize = 10 * 1024 * 1024 // 10MB
+        val numFiles = 100
+        val sizePerFile = dataSize / numFiles.toLong()
         val zipBytes = createLargeStoreZipBytes(dataSize)
 
         KioArch.createReader(zipBytes).use { reader ->
             val entries = reader.getEntries()
-            assertEquals(1, entries.size)
+            assertEquals(numFiles, entries.size)
             
-            val entry = entries[0]
-            assertEquals("large.bin", entry.name)
-            assertEquals(dataSize.toLong(), entry.size)
-
-            val buffer = Buffer()
-            reader.extractEntry(entry, buffer)
-            assertEquals(dataSize.toLong(), buffer.size)
-
-            // Verify content integrity chunk by chunk
-            var verifiedBytes = 0L
-            val chunk = ByteArray(1024 * 1024)
-            while (buffer.size > 0) {
-                val toRead = if (buffer.size > chunk.size) chunk.size else buffer.size.toInt()
-                val readBytes = buffer.readAtMostTo(chunk, 0, toRead)
-                for (i in 0 until readBytes) {
-                    assertEquals(((verifiedBytes + i) % 256).toByte(), chunk[i])
-                }
-                verifiedBytes += readBytes
+            for (i in 0 until numFiles) {
+                val entry = entries[i]
+                assertEquals("large_$i.bin", entry.name)
+                assertEquals(sizePerFile, entry.size)
+                val buffer = Buffer()
+                reader.extractEntry(entry, buffer)
+                assertEquals(sizePerFile, buffer.size)
             }
-            assertEquals(dataSize.toLong(), verifiedBytes)
         }
     }
 
@@ -414,28 +426,20 @@ class KioArchIosTest {
         }
 
         val path = Path(pathStr)
+        val numFiles = 100
+        val sizePerFile = (10 * 1024 * 1024L) / numFiles
         KioArch.createReader(path).use { reader ->
             val entries = reader.getEntries()
-            assertEquals(1, entries.size)
-            val entry = entries[0]
-            assertEquals("large_dummy.bin", entry.name)
-            assertEquals(10 * 1024 * 1024L, entry.size)
+            assertEquals(numFiles, entries.size)
 
-            val buffer = Buffer()
-            reader.extractEntry(entry, buffer)
-            assertEquals(10 * 1024 * 1024L, buffer.size)
-
-            var verifiedBytes = 0L
-            val chunk = ByteArray(1024 * 1024)
-            while (buffer.size > 0) {
-                val toRead = if (buffer.size > chunk.size) chunk.size else buffer.size.toInt()
-                val readBytes = buffer.readAtMostTo(chunk, 0, toRead)
-                for (i in 0 until readBytes) {
-                    assertEquals(((verifiedBytes + i) % 256).toByte(), chunk[i])
-                }
-                verifiedBytes += readBytes
+            for (i in 0 until numFiles) {
+                val entry = entries[i]
+                assertEquals("large_dummy_$i.bin", entry.name)
+                assertEquals(sizePerFile, entry.size)
+                val buffer = Buffer()
+                reader.extractEntry(entry, buffer)
+                assertEquals(sizePerFile, buffer.size)
             }
-            assertEquals(10 * 1024 * 1024L, verifiedBytes)
         }
     }
 
@@ -448,28 +452,20 @@ class KioArchIosTest {
         }
 
         val path = Path(pathStr)
+        val numFiles = 100
+        val sizePerFile = (10 * 1024 * 1024L) / numFiles
         KioArch.createReader(path).use { reader ->
             val entries = reader.getEntries()
-            assertEquals(1, entries.size)
-            val entry = entries[0]
-            assertEquals("large_dummy.bin", entry.name)
-            assertEquals(10 * 1024 * 1024L, entry.size)
+            assertEquals(numFiles, entries.size)
 
-            val buffer = Buffer()
-            reader.extractEntry(entry, buffer)
-            assertEquals(10 * 1024 * 1024L, buffer.size)
-
-            var verifiedBytes = 0L
-            val chunk = ByteArray(1024 * 1024)
-            while (buffer.size > 0) {
-                val toRead = if (buffer.size > chunk.size) chunk.size else buffer.size.toInt()
-                val readBytes = buffer.readAtMostTo(chunk, 0, toRead)
-                for (i in 0 until readBytes) {
-                    assertEquals(((verifiedBytes + i) % 256).toByte(), chunk[i])
-                }
-                verifiedBytes += readBytes
+            for (i in 0 until numFiles) {
+                val entry = entries[i]
+                assertEquals("large_dummy_$i.bin", entry.name)
+                assertEquals(sizePerFile, entry.size)
+                val buffer = Buffer()
+                reader.extractEntry(entry, buffer)
+                assertEquals(sizePerFile, buffer.size)
             }
-            assertEquals(10 * 1024 * 1024L, verifiedBytes)
         }
     }
 

@@ -361,7 +361,7 @@ private fun isNodeJs(): Boolean = js(
 ) as Boolean
 
 private class NodeFileSeekableSource(private val pathStr: String) : SeekableSource {
-    private val fs: dynamic = js("require('fs')")
+    private val fs: dynamic = js("eval('require')('fs')")
     private val fd: Int
     private var pos: Long = 0L
     private val totalLength: Long
