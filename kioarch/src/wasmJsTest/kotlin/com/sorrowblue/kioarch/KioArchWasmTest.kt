@@ -213,6 +213,49 @@ class KioArchWasmTest {
             null
         }
     }
+
+    @Test
+    fun testRealBzip2Extraction(): Promise<JsAny?> {
+        return loadModuleIfNeeded().then {
+            val bytes = readTestFile("TEST_BZ2_PATH")
+            KioArch.createReader(bytes).use { reader ->
+                assertTrue(reader is Bzip2ArchiveReader)
+                val entries = reader.getEntries()
+                assertEquals(1, entries.size)
+                val entry = entries[0]
+                assertEquals("extracted_data", entry.name)
+                assertEquals(-1L, entry.size)
+
+                val buffer = Buffer()
+                reader.extractEntry(entry, buffer)
+                assertEquals("This is a dummy text file compressed using bzip2.", buffer.readByteArray().decodeToString())
+            }
+            null
+        }
+    }
+
+    @Test
+    fun testRealTarBz2Extraction(): Promise<JsAny?> {
+        return loadModuleIfNeeded().then {
+            val bytes = readTestFile("TEST_TARBZ2_PATH")
+            KioArch.createReader(bytes).use { reader ->
+                assertTrue(reader is Bzip2ArchiveReader)
+                val entries = reader.getEntries()
+                assertEquals(2, entries.size)
+
+                val entry1 = entries.first { it.name == "dummy1.txt" }
+                val buffer1 = Buffer()
+                reader.extractEntry(entry1, buffer1)
+                assertEquals("This is a dummy text file inside tar.bz2.", buffer1.readByteArray().decodeToString())
+
+                val entry2 = entries.first { it.name == "dummy2.txt" }
+                val buffer2 = Buffer()
+                reader.extractEntry(entry2, buffer2)
+                assertEquals("Some more dummy content in the second tar.bz2 file.", buffer2.readByteArray().decodeToString())
+            }
+            null
+        }
+    }
 }
 
 @JsFun(

@@ -329,6 +329,23 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
+    @Suppress("MagicNumber")
+    private fun isBzip2(source: SeekableSource): Boolean {
+        val current = source.position()
+        source.seek(0)
+        val buf = ByteArray(3)
+        val read = source.read(buf, 0, 3)
+        source.seek(current)
+        return read >= 3 &&
+            buf[0] == 0x42.toByte() &&
+            buf[1] == 0x5A.toByte() &&
+            buf[2] == 0x68.toByte()
+    }
+
+    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader {
+        return if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
+    }
+
     public actual fun createReader(source: SeekableSource): ArchiveReader {
         val sourceStableRef = StableRef.create(source)
         try {
@@ -373,7 +390,7 @@ public actual object KioArch {
                     throw ArchiveIOException("Failed to open archive. Native error: $errMsg")
                 }
             }
-            return IosArchiveReader(sourceStableRef, handle.toLong())
+            return wrapIfNeeded(source, IosArchiveReader(sourceStableRef, handle.toLong()))
         } catch (e: Exception) {
             sourceStableRef.dispose()
             throw e

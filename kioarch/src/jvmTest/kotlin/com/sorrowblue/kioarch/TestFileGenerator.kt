@@ -7,14 +7,15 @@ import java.util.zip.ZipOutputStream
 import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 
-object LargeTestFileGenerator {
+object TestFileGenerator {
     @JvmStatic
     @Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth", "MagicNumber")
     fun main(args: Array<String>) {
         if (args.isEmpty()) {
-            println("Usage: LargeTestFileGenerator <output-directory>")
+            println("Usage: TestFileGenerator <output-directory>")
             return
         }
         val outDir = File(args[0])
@@ -124,6 +125,31 @@ object LargeTestFileGenerator {
             println("large_100m.tar.gz already exists")
         }
 
+        // zip (10MB)
+        val fileZip = outDir.resolve("large.zip")
+        if (!fileZip.exists()) {
+            println("Generating large zip: ${fileZip.absolutePath}")
+            FileOutputStream(fileZip).use { fos ->
+                ZipOutputStream(fos).use { zos ->
+                    val entry = ZipEntry("large_dummy.bin")
+                    entry.size = dataSize.toLong()
+                    zos.putNextEntry(entry)
+
+                    var written = 0
+                    while (written < dataSize) {
+                        for (i in buffer.indices) {
+                            buffer[i] = ((written + i) % 256).toByte()
+                        }
+                        zos.write(buffer)
+                        written += buffer.size
+                    }
+                    zos.closeEntry()
+                }
+            }
+        } else {
+            println("large.zip already exists")
+        }
+
         // zip (100MB)
         val fileZip100m = outDir.resolve("large_100m.zip")
         if (!fileZip100m.exists()) {
@@ -228,6 +254,178 @@ object LargeTestFileGenerator {
             }
         } else {
             println("test_path_normal.zip already exists")
+        }
+
+        // tar.bz2 (10MB)
+        val fileTarBz2 = outDir.resolve("large.tar.bz2")
+        if (!fileTarBz2.exists()) {
+            println("Generating large tar.bz2: ${fileTarBz2.absolutePath}")
+            FileOutputStream(fileTarBz2).use { fos ->
+                BZip2CompressorOutputStream(fos).use { bz2os ->
+                    TarArchiveOutputStream(bz2os).use { tos ->
+                        val entry = TarArchiveEntry("large_dummy.bin")
+                        entry.size = dataSize.toLong()
+                        tos.putArchiveEntry(entry)
+
+                        var written = 0
+                        while (written < dataSize) {
+                            for (i in buffer.indices) {
+                                buffer[i] = ((written + i) % 256).toByte()
+                            }
+                            tos.write(buffer)
+                            written += buffer.size
+                        }
+                        tos.closeArchiveEntry()
+                    }
+                }
+            }
+        } else {
+            println("large.tar.bz2 already exists")
+        }
+
+        // tar.bz2 (100MB)
+        val fileTarBz2100m = outDir.resolve("large_100m.tar.bz2")
+        if (!fileTarBz2100m.exists()) {
+            println("Generating 100MB tar.bz2: ${fileTarBz2100m.absolutePath}")
+            FileOutputStream(fileTarBz2100m).use { fos ->
+                BZip2CompressorOutputStream(fos).use { bz2os ->
+                    TarArchiveOutputStream(bz2os).use { tos ->
+                        val entry = TarArchiveEntry("large_dummy.bin")
+                        entry.size = dataSize100m.toLong()
+                        tos.putArchiveEntry(entry)
+
+                        var written = 0
+                        while (written < dataSize100m) {
+                            for (i in buffer.indices) {
+                                buffer[i] = ((written + i) % 256).toByte()
+                            }
+                            tos.write(buffer)
+                            written += buffer.size
+                        }
+                        tos.closeArchiveEntry()
+                    }
+                }
+            }
+        } else {
+            println("large_100m.tar.bz2 already exists")
+        }
+
+        // test.bz2 (Small single bzip2 for extraction test)
+        val fileTestBz2 = outDir.resolve("test.bz2")
+        if (!fileTestBz2.exists()) {
+            println("Generating test.bz2: ${fileTestBz2.absolutePath}")
+            FileOutputStream(fileTestBz2).use { fos ->
+                BZip2CompressorOutputStream(fos).use { bz2os ->
+                    val content = "This is a dummy text file compressed using bzip2.".toByteArray()
+                    bz2os.write(content)
+                }
+            }
+        } else {
+            println("test.bz2 already exists")
+        }
+
+        // test.tar.bz2 (Small tar.bz2 for extraction test)
+        val fileTestTarBz2 = outDir.resolve("test.tar.bz2")
+        if (!fileTestTarBz2.exists()) {
+            println("Generating test.tar.bz2: ${fileTestTarBz2.absolutePath}")
+            FileOutputStream(fileTestTarBz2).use { fos ->
+                BZip2CompressorOutputStream(fos).use { bz2os ->
+                    TarArchiveOutputStream(bz2os).use { tos ->
+                        val content1 = (
+                            "This is a dummy text file inside " +
+                                "tar.bz2."
+                            ).toByteArray()
+                        val entry1 = TarArchiveEntry("dummy1.txt")
+                        entry1.size = content1.size.toLong()
+                        tos.putArchiveEntry(entry1)
+                        tos.write(content1)
+                        tos.closeArchiveEntry()
+
+                        val content2 = (
+                            "Some more dummy content in the " +
+                                "second tar.bz2 file."
+                            ).toByteArray()
+                        val entry2 = TarArchiveEntry("dummy2.txt")
+                        entry2.size = content2.size.toLong()
+                        tos.putArchiveEntry(entry2)
+                        tos.write(content2)
+                        tos.closeArchiveEntry()
+                    }
+                }
+            }
+        } else {
+            println("test.tar.bz2 already exists")
+        }
+
+        // test.tar.gz (Small tar.gz for extraction test)
+        val fileTestTarGz = outDir.resolve("test.tar.gz")
+        if (!fileTestTarGz.exists()) {
+            println("Generating test.tar.gz: ${fileTestTarGz.absolutePath}")
+            FileOutputStream(fileTestTarGz).use { fos ->
+                GzipCompressorOutputStream(fos).use { gzos ->
+                    TarArchiveOutputStream(gzos).use { tos ->
+                        val content1 = "This is a dummy text file inside tar.gz.".toByteArray()
+                        val entry1 = TarArchiveEntry("dummy1.txt")
+                        entry1.size = content1.size.toLong()
+                        tos.putArchiveEntry(entry1)
+                        tos.write(content1)
+                        tos.closeArchiveEntry()
+
+                        val content2 = (
+                            "Some more dummy content in the " +
+                                "second tar.gz file."
+                            ).toByteArray()
+                        val entry2 = TarArchiveEntry("dummy2.txt")
+                        entry2.size = content2.size.toLong()
+                        tos.putArchiveEntry(entry2)
+                        tos.write(content2)
+                        tos.closeArchiveEntry()
+
+                        val content3 = "Windows path data".toByteArray()
+                        val entry3 = TarArchiveEntry("nested\\windows\\path.txt")
+                        entry3.size = content3.size.toLong()
+                        tos.putArchiveEntry(entry3)
+                        tos.write(content3)
+                        tos.closeArchiveEntry()
+                    }
+                }
+            }
+        } else {
+            println("test.tar.gz already exists")
+        }
+
+        // test_ext.zip (For extension test)
+        val fileTestExt = outDir.resolve("test_ext.zip")
+        if (!fileTestExt.exists()) {
+            println("Generating test_ext.zip: ${fileTestExt.absolutePath}")
+            FileOutputStream(fileTestExt).use { fos ->
+                ZipOutputStream(fos).use { zos ->
+                    val content = "hello_extension".toByteArray()
+                    zos.putNextEntry(ZipEntry("test.txt"))
+                    zos.write(content)
+                    zos.closeEntry()
+                }
+            }
+        } else {
+            println("test_ext.zip already exists")
+        }
+
+        // test_bulk.zip (Bulk metadata test with 100 entries)
+        val fileTestBulk = outDir.resolve("test_bulk.zip")
+        if (!fileTestBulk.exists()) {
+            println("Generating test_bulk.zip: ${fileTestBulk.absolutePath}")
+            FileOutputStream(fileTestBulk).use { fos ->
+                ZipOutputStream(fos).use { zos ->
+                    val content = "data".toByteArray()
+                    for (i in 0 until 100) {
+                        zos.putNextEntry(ZipEntry("folder/subfolder/file_$i.txt"))
+                        zos.write(content)
+                        zos.closeEntry()
+                    }
+                }
+            }
+        } else {
+            println("test_bulk.zip already exists")
         }
     }
 }
