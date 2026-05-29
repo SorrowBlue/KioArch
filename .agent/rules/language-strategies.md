@@ -28,3 +28,8 @@ trigger: always_on
   - `/commit` command: Generates commit messages in English.
   - `/commit-ja` command: Generates commit messages in Japanese.
   Unless specified by a workflow, follow the standard project Git rules.
+
+- **Test Code Style Guidelines:**
+  - **No License Header:** Do not include any copyright or Apache License headers in test source files.
+  - **Implicit Visibility (No `public`):** In Kotlin test classes and methods, omit the `public` visibility modifier since it is default and redundant.
+
