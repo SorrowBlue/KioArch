@@ -11,6 +11,13 @@ import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
 
 object TestFileGenerator {
+
+    private fun writeBuffer(written: Int, buffer: ByteArray, offset: Int) {
+        for (i in buffer.indices) {
+            buffer[i] = ((written + i + offset) % 256).toByte()
+        }
+    }
+
     @JvmStatic
     @Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth", "MagicNumber")
     fun main(args: Array<String>) {
@@ -24,25 +31,27 @@ object TestFileGenerator {
         val dataSize = 10 * 1024 * 1024 // 10MB
         val dataSize100m = 100 * 1024 * 1024 // 100MB
         val buffer = ByteArray(1024 * 1024) // 1MB buffer
+        val numFiles = 100
 
         // 7z (10MB)
         val file7z = outDir.resolve("large.7z")
         if (!file7z.exists()) {
             println("Generating large 7z: ${file7z.absolutePath}")
             SevenZOutputFile(file7z).use { sevenZFile ->
-                val entry = sevenZFile.createArchiveEntry(file7z, "large_dummy.bin")
-                entry.size = dataSize.toLong()
-                sevenZFile.putArchiveEntry(entry)
-
-                var written = 0
-                while (written < dataSize) {
-                    for (i in buffer.indices) {
-                        buffer[i] = ((written + i) % 256).toByte()
+                val sizePerFile = dataSize / numFiles
+                for (f in 0 until numFiles) {
+                    val entry = sevenZFile.createArchiveEntry(file7z, "large_dummy_$f.bin")
+                    entry.size = sizePerFile.toLong()
+                    sevenZFile.putArchiveEntry(entry)
+                    var written = 0
+                    while (written < sizePerFile) {
+                        writeBuffer(written, buffer, f * 10)
+                        val toWrite = minOf(buffer.size, sizePerFile - written)
+                        sevenZFile.write(buffer, 0, toWrite)
+                        written += toWrite
                     }
-                    sevenZFile.write(buffer)
-                    written += buffer.size
+                    sevenZFile.closeArchiveEntry()
                 }
-                sevenZFile.closeArchiveEntry()
             }
         } else {
             println("large.7z already exists")
@@ -55,19 +64,20 @@ object TestFileGenerator {
             FileOutputStream(fileTarGz).use { fos ->
                 GzipCompressorOutputStream(fos).use { gzos ->
                     TarArchiveOutputStream(gzos).use { tos ->
-                        val entry = TarArchiveEntry("large_dummy.bin")
-                        entry.size = dataSize.toLong()
-                        tos.putArchiveEntry(entry)
-
-                        var written = 0
-                        while (written < dataSize) {
-                            for (i in buffer.indices) {
-                                buffer[i] = ((written + i) % 256).toByte()
+                        val sizePerFile = dataSize / numFiles
+                        for (f in 0 until numFiles) {
+                            val entry = TarArchiveEntry("large_dummy_$f.bin")
+                            entry.size = sizePerFile.toLong()
+                            tos.putArchiveEntry(entry)
+                            var written = 0
+                            while (written < sizePerFile) {
+                                writeBuffer(written, buffer, f * 10)
+                                val toWrite = minOf(buffer.size, sizePerFile - written)
+                                tos.write(buffer, 0, toWrite)
+                                written += toWrite
                             }
-                            tos.write(buffer)
-                            written += buffer.size
+                            tos.closeArchiveEntry()
                         }
-                        tos.closeArchiveEntry()
                     }
                 }
             }
@@ -80,19 +90,20 @@ object TestFileGenerator {
         if (!file7z100m.exists()) {
             println("Generating 100MB 7z: ${file7z100m.absolutePath}")
             SevenZOutputFile(file7z100m).use { sevenZFile ->
-                val entry = sevenZFile.createArchiveEntry(file7z100m, "large_dummy.bin")
-                entry.size = dataSize100m.toLong()
-                sevenZFile.putArchiveEntry(entry)
-
-                var written = 0
-                while (written < dataSize100m) {
-                    for (i in buffer.indices) {
-                        buffer[i] = ((written + i) % 256).toByte()
+                val sizePerFile = dataSize100m / numFiles
+                for (f in 0 until numFiles) {
+                    val entry = sevenZFile.createArchiveEntry(file7z100m, "large_dummy_$f.bin")
+                    entry.size = sizePerFile.toLong()
+                    sevenZFile.putArchiveEntry(entry)
+                    var written = 0
+                    while (written < sizePerFile) {
+                        writeBuffer(written, buffer, f * 10)
+                        val toWrite = minOf(buffer.size, sizePerFile - written)
+                        sevenZFile.write(buffer, 0, toWrite)
+                        written += toWrite
                     }
-                    sevenZFile.write(buffer)
-                    written += buffer.size
+                    sevenZFile.closeArchiveEntry()
                 }
-                sevenZFile.closeArchiveEntry()
             }
         } else {
             println("large_100m.7z already exists")
@@ -105,19 +116,20 @@ object TestFileGenerator {
             FileOutputStream(fileTarGz100m).use { fos ->
                 GzipCompressorOutputStream(fos).use { gzos ->
                     TarArchiveOutputStream(gzos).use { tos ->
-                        val entry = TarArchiveEntry("large_dummy.bin")
-                        entry.size = dataSize100m.toLong()
-                        tos.putArchiveEntry(entry)
-
-                        var written = 0
-                        while (written < dataSize100m) {
-                            for (i in buffer.indices) {
-                                buffer[i] = ((written + i) % 256).toByte()
+                        val sizePerFile = dataSize100m / numFiles
+                        for (f in 0 until numFiles) {
+                            val entry = TarArchiveEntry("large_dummy_$f.bin")
+                            entry.size = sizePerFile.toLong()
+                            tos.putArchiveEntry(entry)
+                            var written = 0
+                            while (written < sizePerFile) {
+                                writeBuffer(written, buffer, f * 10)
+                                val toWrite = minOf(buffer.size, sizePerFile - written)
+                                tos.write(buffer, 0, toWrite)
+                                written += toWrite
                             }
-                            tos.write(buffer)
-                            written += buffer.size
+                            tos.closeArchiveEntry()
                         }
-                        tos.closeArchiveEntry()
                     }
                 }
             }
@@ -131,19 +143,20 @@ object TestFileGenerator {
             println("Generating large zip: ${fileZip.absolutePath}")
             FileOutputStream(fileZip).use { fos ->
                 ZipOutputStream(fos).use { zos ->
-                    val entry = ZipEntry("large_dummy.bin")
-                    entry.size = dataSize.toLong()
-                    zos.putNextEntry(entry)
-
-                    var written = 0
-                    while (written < dataSize) {
-                        for (i in buffer.indices) {
-                            buffer[i] = ((written + i) % 256).toByte()
+                    val sizePerFile = dataSize / numFiles
+                    for (f in 0 until numFiles) {
+                        val entry = ZipEntry("large_dummy_$f.bin")
+                        entry.size = sizePerFile.toLong()
+                        zos.putNextEntry(entry)
+                        var written = 0
+                        while (written < sizePerFile) {
+                            writeBuffer(written, buffer, f * 10)
+                            val toWrite = minOf(buffer.size, sizePerFile - written)
+                            zos.write(buffer, 0, toWrite)
+                            written += toWrite
                         }
-                        zos.write(buffer)
-                        written += buffer.size
+                        zos.closeEntry()
                     }
-                    zos.closeEntry()
                 }
             }
         } else {
@@ -156,19 +169,20 @@ object TestFileGenerator {
             println("Generating 100MB zip: ${fileZip100m.absolutePath}")
             FileOutputStream(fileZip100m).use { fos ->
                 ZipOutputStream(fos).use { zos ->
-                    val entry = ZipEntry("large_dummy.bin")
-                    entry.size = dataSize100m.toLong()
-                    zos.putNextEntry(entry)
-
-                    var written = 0
-                    while (written < dataSize100m) {
-                        for (i in buffer.indices) {
-                            buffer[i] = ((written + i) % 256).toByte()
+                    val sizePerFile = dataSize100m / numFiles
+                    for (f in 0 until numFiles) {
+                        val entry = ZipEntry("large_dummy_$f.bin")
+                        entry.size = sizePerFile.toLong()
+                        zos.putNextEntry(entry)
+                        var written = 0
+                        while (written < sizePerFile) {
+                            writeBuffer(written, buffer, f * 10)
+                            val toWrite = minOf(buffer.size, sizePerFile - written)
+                            zos.write(buffer, 0, toWrite)
+                            written += toWrite
                         }
-                        zos.write(buffer)
-                        written += buffer.size
+                        zos.closeEntry()
                     }
-                    zos.closeEntry()
                 }
             }
         } else {
@@ -248,8 +262,12 @@ object TestFileGenerator {
         if (!fileTestPathNormal.exists()) {
             println("Generating test_path_normal.zip: ${fileTestPathNormal.absolutePath}")
             ZipOutputStream(FileOutputStream(fileTestPathNormal)).use { zos ->
-                zos.putNextEntry(ZipEntry("directory\\subdir\\file.txt"))
-                zos.write("hello_thread".toByteArray())
+                zos.putNextEntry(ZipEntry("directory\\subdir\\file1.txt"))
+                zos.write("hello_thread1".toByteArray())
+                zos.closeEntry()
+
+                zos.putNextEntry(ZipEntry("directory\\subdir\\file2.txt"))
+                zos.write("hello_thread2".toByteArray())
                 zos.closeEntry()
             }
         } else {
@@ -263,19 +281,20 @@ object TestFileGenerator {
             FileOutputStream(fileTarBz2).use { fos ->
                 BZip2CompressorOutputStream(fos).use { bz2os ->
                     TarArchiveOutputStream(bz2os).use { tos ->
-                        val entry = TarArchiveEntry("large_dummy.bin")
-                        entry.size = dataSize.toLong()
-                        tos.putArchiveEntry(entry)
-
-                        var written = 0
-                        while (written < dataSize) {
-                            for (i in buffer.indices) {
-                                buffer[i] = ((written + i) % 256).toByte()
+                        val sizePerFile = dataSize / numFiles
+                        for (f in 0 until numFiles) {
+                            val entry = TarArchiveEntry("large_dummy_$f.bin")
+                            entry.size = sizePerFile.toLong()
+                            tos.putArchiveEntry(entry)
+                            var written = 0
+                            while (written < sizePerFile) {
+                                writeBuffer(written, buffer, f * 10)
+                                val toWrite = minOf(buffer.size, sizePerFile - written)
+                                tos.write(buffer, 0, toWrite)
+                                written += toWrite
                             }
-                            tos.write(buffer)
-                            written += buffer.size
+                            tos.closeArchiveEntry()
                         }
-                        tos.closeArchiveEntry()
                     }
                 }
             }
@@ -290,19 +309,20 @@ object TestFileGenerator {
             FileOutputStream(fileTarBz2100m).use { fos ->
                 BZip2CompressorOutputStream(fos).use { bz2os ->
                     TarArchiveOutputStream(bz2os).use { tos ->
-                        val entry = TarArchiveEntry("large_dummy.bin")
-                        entry.size = dataSize100m.toLong()
-                        tos.putArchiveEntry(entry)
-
-                        var written = 0
-                        while (written < dataSize100m) {
-                            for (i in buffer.indices) {
-                                buffer[i] = ((written + i) % 256).toByte()
+                        val sizePerFile = dataSize100m / numFiles
+                        for (f in 0 until numFiles) {
+                            val entry = TarArchiveEntry("large_dummy_$f.bin")
+                            entry.size = sizePerFile.toLong()
+                            tos.putArchiveEntry(entry)
+                            var written = 0
+                            while (written < sizePerFile) {
+                                writeBuffer(written, buffer, f * 10)
+                                val toWrite = minOf(buffer.size, sizePerFile - written)
+                                tos.write(buffer, 0, toWrite)
+                                written += toWrite
                             }
-                            tos.write(buffer)
-                            written += buffer.size
+                            tos.closeArchiveEntry()
                         }
-                        tos.closeArchiveEntry()
                     }
                 }
             }
@@ -400,9 +420,14 @@ object TestFileGenerator {
             println("Generating test_ext.zip: ${fileTestExt.absolutePath}")
             FileOutputStream(fileTestExt).use { fos ->
                 ZipOutputStream(fos).use { zos ->
-                    val content = "hello_extension".toByteArray()
-                    zos.putNextEntry(ZipEntry("test.txt"))
-                    zos.write(content)
+                    val content1 = "hello_extension1".toByteArray()
+                    zos.putNextEntry(ZipEntry("test1.txt"))
+                    zos.write(content1)
+                    zos.closeEntry()
+
+                    val content2 = "hello_extension2".toByteArray()
+                    zos.putNextEntry(ZipEntry("test2.txt"))
+                    zos.write(content2)
                     zos.closeEntry()
                 }
             }

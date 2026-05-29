@@ -35,6 +35,7 @@ kotlin {
 
     js {
         nodejs()
+        browser {}
         compilerOptions {
             freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
         }
@@ -43,6 +44,7 @@ kotlin {
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
     wasmJs {
         nodejs()
+        browser {}
         compilerOptions {
             freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
         }
@@ -121,6 +123,12 @@ kotlin {
                 implementation(libs.androidx.test.ext.junit)
             }
         }
+        val jsTest by getting {
+            resources.srcDir(layout.buildDirectory.dir("tmp/large_tests"))
+        }
+        val wasmJsTest by getting {
+            resources.srcDir(layout.buildDirectory.dir("tmp/large_tests"))
+        }
     }
 
     compilerOptions {
@@ -165,6 +173,14 @@ tasks.named("jsProcessResources") {
 
 tasks.named("wasmJsProcessResources") {
     dependsOn(compileWasmNatives)
+}
+
+tasks.named("jsTestProcessResources") {
+    dependsOn(generateTestFiles)
+}
+
+tasks.named("wasmJsTestProcessResources") {
+    dependsOn(generateTestFiles)
 }
 
 val compileIosNatives by tasks.registering(CompileIosNativesTask::class) {
@@ -424,5 +440,26 @@ tasks.withType<Test>().configureEach {
     systemProperty("LARGE_100M_ZIP_PATH", "$testDir/large_100m.zip")
     systemProperty("LARGE_TARBZ2_PATH", "$testDir/large.tar.bz2")
     systemProperty("LARGE_100M_TARBZ2_PATH", "$testDir/large_100m.tar.bz2")
+}
+
+val copyJsTestAssets by tasks.registering(Copy::class) {
+    dependsOn(generateTestFiles)
+    from(layout.buildDirectory.dir("tmp/large_tests"))
+    into(project.rootProject.layout.buildDirectory.dir("js/packages/KioArch-root-kioarch-test/kotlin"))
+}
+
+val copyWasmTestAssets by tasks.registering(Copy::class) {
+    dependsOn(generateTestFiles)
+    from(layout.buildDirectory.dir("tmp/large_tests"))
+    into(project.rootProject.layout.buildDirectory.dir("wasm/packages/KioArch-root-kioarch-test/kotlin"))
+}
+
+tasks.configureEach {
+    if (name == "jsBrowserTest" || name == "jsNodeTest") {
+        dependsOn(copyJsTestAssets)
+    }
+    if (name == "wasmJsBrowserTest" || name == "wasmJsNodeTest") {
+        dependsOn(copyWasmTestAssets)
+    }
 }
 

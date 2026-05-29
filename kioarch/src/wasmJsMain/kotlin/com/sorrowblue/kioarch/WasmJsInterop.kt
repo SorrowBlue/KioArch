@@ -320,7 +320,7 @@ private external fun isNodeJsWasmInternal(): Boolean
 internal fun isNodeJsWasm(): Boolean = isNodeJsWasmInternal()
 
 @JsFun(
-    "() => { if (!globalThis.kioarchFs) { globalThis.kioarchFs = typeof require !== 'undefined' ? require('fs') : null; } }"
+    "() => { if (!globalThis.kioarchFs) { globalThis.kioarchFs = typeof require !== 'undefined' ? eval('require')('fs') : null; } }"
 )
 private external fun initNodeFsInternal()
 
