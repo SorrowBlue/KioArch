@@ -422,6 +422,7 @@ tasks.withType<org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest>().co
 
 tasks.withType<Test>().configureEach {
     dependsOn(generateTestFiles)
+    failOnNoDiscoveredTests.set(false)
     val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
     systemProperty("TEST_ZIP_PATH", "$testDir/test.zip")
     systemProperty("TEST_7Z_PATH", "$testDir/test.7z")

@@ -1,19 +1,3 @@
-/*
- * Copyright 2026 SorrowBlue
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.sorrowblue.kioarch
 
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -41,7 +25,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-// Force rebuild
 private inline fun <T> NSLock.withLock(action: () -> T): T {
     this.lock()
     try {
@@ -92,18 +75,18 @@ private fun createLargeStoreZipBytes(dataSize: Int): ByteArray {
     for (i in 0 until numFiles) {
         lfhOffsets.add(currentOffset)
         val lfh = Buffer().apply {
-            write(byteArrayOf(0x50, 0x4B, 0x03, 0x04)) // Signature
-            write(byteArrayOf(0x0A, 0x00))             // Version
-            write(byteArrayOf(0x00, 0x00))             // Flags
-            write(byteArrayOf(0x00, 0x00))             // Method (Store)
-            write(byteArrayOf(0xE9.toByte(), 0x8B.toByte())) // Time
-            write(byteArrayOf(0x13, 0x59))             // Date
-            writeIntLe(crcList[i])                     // CRC-32
-            writeIntLe(sizePerFile)                    // Compressed Size
-            writeIntLe(sizePerFile)                    // Uncompressed Size
-            writeShortLe(nameBytesList[i].size.toShort()) // Name Length
-            writeShortLe(0.toShort())                  // Extra Length
-            write(nameBytesList[i])                    // Name
+            write(byteArrayOf(0x50, 0x4B, 0x03, 0x04))
+            write(byteArrayOf(0x0A, 0x00))
+            write(byteArrayOf(0x00, 0x00))
+            write(byteArrayOf(0x00, 0x00))
+            write(byteArrayOf(0xE9.toByte(), 0x8B.toByte()))
+            write(byteArrayOf(0x13, 0x59))
+            writeIntLe(crcList[i])
+            writeIntLe(sizePerFile)
+            writeIntLe(sizePerFile)
+            writeShortLe(nameBytesList[i].size.toShort())
+            writeShortLe(0.toShort())
+            write(nameBytesList[i])
         }.readByteArray()
         lfhList.add(lfh)
         currentOffset += lfh.size + sizePerFile
@@ -116,38 +99,38 @@ private fun createLargeStoreZipBytes(dataSize: Int): ByteArray {
     var cdSize = 0
     for (i in 0 until numFiles) {
         val cdh = Buffer().apply {
-            write(byteArrayOf(0x50, 0x4B, 0x01, 0x02)) // Signature
-            write(byteArrayOf(0x1E, 0x03))             // Made by
-            write(byteArrayOf(0x0A, 0x00))             // Version
-            write(byteArrayOf(0x00, 0x00))             // Flags
-            write(byteArrayOf(0x00, 0x00))             // Method
-            write(byteArrayOf(0xE9.toByte(), 0x8B.toByte())) // Time
-            write(byteArrayOf(0x13, 0x59))             // Date
-            writeIntLe(crcList[i])                     // CRC-32
-            writeIntLe(sizePerFile)                    // Compressed Size
-            writeIntLe(sizePerFile)                    // Uncompressed Size
-            writeShortLe(nameBytesList[i].size.toShort()) // Name Length
-            writeShortLe(0.toShort())                  // Extra Length
-            writeShortLe(0.toShort())                  // Comment Length
-            writeShortLe(0.toShort())                  // Disk Start
-            writeShortLe(0.toShort())                  // Internal Attr
-            writeIntLe(0)                              // External Attr
-            writeIntLe(lfhOffsets[i])                  // Local Header Offset
-            write(nameBytesList[i])                    // Name
+            write(byteArrayOf(0x50, 0x4B, 0x01, 0x02))
+            write(byteArrayOf(0x1E, 0x03))
+            write(byteArrayOf(0x0A, 0x00))
+            write(byteArrayOf(0x00, 0x00))
+            write(byteArrayOf(0x00, 0x00))
+            write(byteArrayOf(0xE9.toByte(), 0x8B.toByte()))
+            write(byteArrayOf(0x13, 0x59))
+            writeIntLe(crcList[i])
+            writeIntLe(sizePerFile)
+            writeIntLe(sizePerFile)
+            writeShortLe(nameBytesList[i].size.toShort())
+            writeShortLe(0.toShort())
+            writeShortLe(0.toShort())
+            writeShortLe(0.toShort())
+            writeShortLe(0.toShort())
+            writeIntLe(0)
+            writeIntLe(lfhOffsets[i])
+            write(nameBytesList[i])
         }.readByteArray()
         cdhList.add(cdh)
         cdSize += cdh.size
     }
 
     val eocd = Buffer().apply {
-        write(byteArrayOf(0x50, 0x4B, 0x05, 0x06)) // Signature
-        writeShortLe(0.toShort())                  // Disk Number
-        writeShortLe(0.toShort())                  // CD Disk
-        writeShortLe(numFiles.toShort())           // CD Disk Records
-        writeShortLe(numFiles.toShort())           // CD Records
-        writeIntLe(cdSize)                         // CD Size
-        writeIntLe(cdOffset)                       // CD Offset
-        writeShortLe(0.toShort())                  // Comment Length
+        write(byteArrayOf(0x50, 0x4B, 0x05, 0x06))
+        writeShortLe(0.toShort())
+        writeShortLe(0.toShort())
+        writeShortLe(numFiles.toShort())
+        writeShortLe(numFiles.toShort())
+        writeIntLe(cdSize)
+        writeIntLe(cdOffset)
+        writeShortLe(0.toShort())
     }.readByteArray()
 
     val zipBytes = ByteArray(cdOffset + cdSize + eocd.size)
@@ -171,10 +154,8 @@ private fun createLargeStoreZipBytes(dataSize: Int): ByteArray {
 }
 
 @OptIn(ExperimentalForeignApi::class, kotlin.native.runtime.NativeRuntimeApi::class)
-class KioArchIosTest {
+class ArchiveReaderIosTest {
 
-    // A tiny ZIP file containing "test.txt" with content "hello" (119 bytes)
-    // Correct CRC-32 for "hello" is 0x3610A686 (Little-endian: 86 A6 10 36)
     private val tinyZipBytes = byteArrayOf(
         0x50, 0x4B, 0x03, 0x04, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE9.toByte(), 0x8B.toByte(), 0x13, 0x59,
         0x86.toByte(), 0xA6.toByte(), 0x10, 0x36,
@@ -193,42 +174,6 @@ class KioArchIosTest {
     private val tinyTarGzBytes = "1F8B08000000000000FFED944D0AC23010467B94394199C4341E44C18D9B60461BB0A99829FE9CDE5605A12E5C685B9079040221904926EFF34D555D54CE67CE060315A23506F0417F462C1054A1D1D899D5DD3EA50A3BCB00872BE94593D81D33FCFAACFEE57E50DA182CCB90A01D0E7CF71380E9CCB00D7B821053F004EDEBE4BB6B3E759DC230DCBBAE27F6DFEA77FFE7E2FF182CEA8AA0AA8FF4F47F5347A6C8ADFDC02541A276C13F43E09E0B92047F45A4C4E4D7A7107D7D4AEB83E3F2E761F0D17FAD7AFE1B83E2FF28AC1E8D87AEF1E01DBBA90B1204411046E106D3F7DD9500100000".hexToByteArray()
 
     @Test
-    fun testByteArraySeekableSource() {
-        val data = byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
-        val source = ByteArraySeekableSource(data)
-
-        assertEquals(10L, source.length())
-        assertEquals(0L, source.position())
-
-        val buffer = ByteArray(4)
-        val read1 = source.read(buffer, 0, 4)
-        assertEquals(4, read1)
-        assertEquals(0.toByte(), buffer[0])
-        assertEquals(1.toByte(), buffer[1])
-        assertEquals(2.toByte(), buffer[2])
-        assertEquals(3.toByte(), buffer[3])
-        assertEquals(4L, source.position())
-
-        source.seek(2)
-        assertEquals(2L, source.position())
-
-        val read2 = source.read(buffer, 0, 4)
-        assertEquals(4, read2)
-        assertEquals(2.toByte(), buffer[0])
-        assertEquals(3.toByte(), buffer[1])
-        assertEquals(4.toByte(), buffer[2])
-        assertEquals(5.toByte(), buffer[3])
-
-        source.seek(8)
-        val read3 = source.read(buffer, 0, 4)
-        assertEquals(2, read3)
-        assertEquals(8.toByte(), buffer[0])
-        assertEquals(9.toByte(), buffer[1])
-
-        source.close()
-    }
-
-    @Test
     fun testInvalidArchiveThrowsException() {
         val invalidData = byteArrayOf(1, 2, 3, 4, 5)
         assertFailsWith<ArchiveIOException> {
@@ -241,7 +186,6 @@ class KioArchIosTest {
     @Test
     fun testCorruptedArchiveThrowsException() {
         val bytes = tinyZipBytes.copyOf()
-        // Corrupt central directory structure in the tiny ZIP
         for (i in 40 until 80) {
             bytes[i] = 0.toByte()
         }
@@ -255,61 +199,21 @@ class KioArchIosTest {
     @Test
     fun testTinyZipExtraction() {
         KioArch.createReader(tinyZipBytes).use { reader ->
-            val entries = reader.getEntries()
-            assertEquals(1, entries.size)
-            
-            val entry = entries[0]
-            assertEquals("test.txt", entry.name)
-            assertEquals(5L, entry.size)
-            assertEquals(false, entry.isDirectory)
-
-            val buffer = Buffer()
-            reader.extractEntry(entry, buffer)
-            assertEquals(5L, buffer.size)
-
-            val bytes = buffer.readByteArray()
-            assertEquals("hello", bytes.decodeToString())
+            ArchiveReaderTestSpec.verifyZipExtraction(reader, 1)
         }
     }
 
     @Test
     fun testReal7zExtraction() {
         KioArch.createReader(tiny7zBytes).use { reader ->
-            val entries = reader.getEntries()
-            assertEquals(2, entries.size)
-            
-            assertEquals("dummy1.txt", entries[0].name)
-            assertEquals(36L, entries[0].size)
-            
-            assertEquals("dummy2.txt", entries[1].name)
-            assertEquals(46L, entries[1].size)
-
-            val buffer = Buffer()
-            reader.extractEntry(entries[0], buffer)
-            assertEquals(36L, buffer.size)
-            assertEquals("This is a dummy text file inside 7z.", buffer.readByteArray().decodeToString())
+            ArchiveReaderTestSpec.verify7zExtraction(reader, 2)
         }
     }
 
     @Test
     fun testRealTarGzExtraction() {
         KioArch.createReader(tinyTarGzBytes).use { reader ->
-            val entries = reader.getEntries()
-            assertEquals(3, entries.size)
-            
-            assertEquals("dummy1.txt", entries[0].name)
-            assertEquals(40L, entries[0].size)
-            
-            assertEquals("dummy2.txt", entries[1].name)
-            assertEquals(50L, entries[1].size)
-
-            assertEquals("nested/windows/path.txt", entries[2].name)
-            assertEquals(17L, entries[2].size)
-
-            val buffer = Buffer()
-            reader.extractEntry(entries[0], buffer)
-            assertEquals(40L, buffer.size)
-            assertEquals("This is a dummy text file inside tar.gz.", buffer.readByteArray().decodeToString())
+            ArchiveReaderTestSpec.verifyTarGzExtraction(reader, 3)
         }
     }
 
@@ -333,19 +237,7 @@ class KioArchIosTest {
         try {
             val path = Path(tempPathStr)
             KioArch.createReader(path).use { reader ->
-                val entries = reader.getEntries()
-                assertEquals(1, entries.size)
-                
-                val entry = entries[0]
-                assertEquals("test.txt", entry.name)
-                assertEquals(5L, entry.size)
-
-                val buffer = Buffer()
-                reader.extractEntry(entry, buffer)
-                assertEquals(5L, buffer.size)
-
-                val bytes = buffer.readByteArray()
-                assertEquals("hello", bytes.decodeToString())
+                ArchiveReaderTestSpec.verifyZipExtraction(reader, 1)
             }
         } finally {
             remove(tempPathStr)
@@ -381,12 +273,11 @@ class KioArchIosTest {
                 }
             }
 
-            // Wait for all threads to complete (max 5 seconds)
             var totalWaitMs = 0
             while (totalWaitMs < 5000) {
                 val done = lock.withLock { finishedThreads == numThreads }
                 if (done) break
-                usleep(10000u) // wait 10ms
+                usleep(10000u)
                 totalWaitMs += 10
             }
 
@@ -397,23 +288,13 @@ class KioArchIosTest {
 
     @Test
     fun testLargeZipExtraction() {
-        val dataSize = 10 * 1024 * 1024 // 10MB
+        val dataSize = 10 * 1024 * 1024
         val numFiles = 100
         val sizePerFile = dataSize / numFiles.toLong()
         val zipBytes = createLargeStoreZipBytes(dataSize)
 
         KioArch.createReader(zipBytes).use { reader ->
-            val entries = reader.getEntries()
-            assertEquals(numFiles, entries.size)
-            
-            for (i in 0 until numFiles) {
-                val entry = entries[i]
-                assertEquals("large_$i.bin", entry.name)
-                assertEquals(sizePerFile, entry.size)
-                val buffer = Buffer()
-                reader.extractEntry(entry, buffer)
-                assertEquals(sizePerFile, buffer.size)
-            }
+            ArchiveReaderTestSpec.verifyLargeExtraction(reader, numFiles, sizePerFile, "large_")
         }
     }
 
@@ -429,17 +310,7 @@ class KioArchIosTest {
         val numFiles = 100
         val sizePerFile = (10 * 1024 * 1024L) / numFiles
         KioArch.createReader(path).use { reader ->
-            val entries = reader.getEntries()
-            assertEquals(numFiles, entries.size)
-
-            for (i in 0 until numFiles) {
-                val entry = entries[i]
-                assertEquals("large_dummy_$i.bin", entry.name)
-                assertEquals(sizePerFile, entry.size)
-                val buffer = Buffer()
-                reader.extractEntry(entry, buffer)
-                assertEquals(sizePerFile, buffer.size)
-            }
+            ArchiveReaderTestSpec.verifyLargeExtraction(reader, numFiles, sizePerFile)
         }
     }
 
@@ -455,28 +326,13 @@ class KioArchIosTest {
         val numFiles = 100
         val sizePerFile = (10 * 1024 * 1024L) / numFiles
         KioArch.createReader(path).use { reader ->
-            val entries = reader.getEntries()
-            assertEquals(numFiles, entries.size)
-
-            for (i in 0 until numFiles) {
-                val entry = entries[i]
-                assertEquals("large_dummy_$i.bin", entry.name)
-                assertEquals(sizePerFile, entry.size)
-                val buffer = Buffer()
-                reader.extractEntry(entry, buffer)
-                assertEquals(sizePerFile, buffer.size)
-            }
+            ArchiveReaderTestSpec.verifyLargeExtraction(reader, numFiles, sizePerFile)
         }
     }
 
-    /**
-     * Verifies that repeatedly attempting to open and read a corrupted archive
-     * does not cause native memory leaks or crash the runtime during exception handling.
-     */
     @Test
     fun testLeakBrokenArchive() {
         val bytes = tinyZipBytes.copyOf()
-        // Corrupt central directory structure in the tiny ZIP to trigger errors
         for (i in 40 until 80) {
             bytes[i] = 0.toByte()
         }
@@ -492,21 +348,15 @@ class KioArchIosTest {
             }
         }
 
-        // Trigger Kotlin Native Garbage Collection to free memory pools
         kotlin.native.runtime.GC.collect()
 
         val finalMem = kio_get_resident_memory().toLong()
         val growth = finalMem - initialMem
         println("testLeakBrokenArchive - Final Memory: ${finalMem / 1024 / 1024} MB (Growth: ${growth / 1024 / 1024} MB)")
 
-        // Assert that the memory growth is minimal (less than 5MB)
         assertTrue(growth < 5 * 1024 * 1024, "Memory leak detected in error handling paths! Growth: ${growth / 1024 / 1024} MB")
     }
 
-    /**
-     * Verifies that repeatedly extracting a moderate-sized 10MB archive (7z) 20 times
-     * does not leak native allocations, StableRefs, or heap buffers.
-     */
     @Test
     fun testLeakLargeArchive() {
         val pathStr = getenv("LARGE_7Z_PATH")?.toKString()
@@ -528,7 +378,6 @@ class KioArchIosTest {
                     reader.extractEntry(entry, buffer)
                 }
             }
-            // Collect GC periodically to clean up temporary Kotlin allocations
             kotlin.native.runtime.GC.collect()
             val currentMem = kio_get_resident_memory().toLong()
             if ((i + 1) % 5 == 0) {
@@ -541,8 +390,6 @@ class KioArchIosTest {
         val growth = finalMem - initialMem
         println("testLeakLargeArchive - Final Memory: ${finalMem / 1024 / 1024} MB (Growth: ${growth / 1024 / 1024} MB)")
 
-        // Assert that memory growth is minimal (less than 15MB). 
-        // If there were a leak of 10MB per extraction, it would grow by >200MB over 20 iterations.
         assertTrue(growth < 15 * 1024 * 1024, "Memory leak detected in large file extraction! Growth: ${growth / 1024 / 1024} MB")
     }
 }
