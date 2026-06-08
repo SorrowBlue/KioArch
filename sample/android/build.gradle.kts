@@ -12,13 +12,13 @@ kotlin {
 }
 
 android {
-    namespace = "com.sorrowblue.kioarch.sample"
+    namespace = "com.sorrowblue.kioarch.sample.android"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.sorrowblue.kioarch.sample"
+        applicationId = "com.sorrowblue.kioarch.sample.android"
         minSdk = 30
         targetSdk = 37
         versionCode = 1
@@ -43,21 +43,11 @@ android {
 }
 
 dependencies {
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.documentfile)
     implementation(projects.kioarch)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons.core)
-    implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.runtime)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    
+    implementation(projects.sample)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.compose.foundation)
+
     // Testing
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.test.runner)
@@ -67,7 +57,7 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.compose.uiTooling)
 }
 
 configurations.all {

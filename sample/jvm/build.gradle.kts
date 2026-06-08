@@ -8,8 +8,6 @@ plugins {
 }
 
 kotlin {
-    explicitApi()
-
     jvmToolchain {
         vendor.set(JvmVendorSpec.ADOPTIUM)
         languageVersion.set(JavaLanguageVersion.of(libs.versions.java.get()))
@@ -18,20 +16,10 @@ kotlin {
     jvm()
 
     sourceSets {
-        commonMain {
-            dependencies {
-                implementation(projects.kioarch)
-                implementation(compose.runtime)
-                implementation(compose.foundation)
-                implementation(compose.material3)
-                implementation(compose.materialIconsExtended)
-                implementation(libs.filekit.core)
-                implementation(libs.filekit.dialogs)
-                implementation(libs.filekit.dialogs.compose)
-            }
-        }
         jvmMain {
             dependencies {
+                implementation(projects.kioarch)
+                implementation(projects.sample)
                 implementation(compose.desktop.currentOs)
             }
         }

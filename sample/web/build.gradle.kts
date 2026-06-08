@@ -1,5 +1,7 @@
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.jetbrains.compose)
+    alias(libs.plugins.kotlin.compose)
     id("kioarch.detekt")
 }
 
@@ -11,8 +13,14 @@ kotlin {
         languageVersion.set(JavaLanguageVersion.of(libs.versions.java.get()))
     }
 
+    js {
+        nodejs()
+        browser()
+        binaries.executable()
+    }
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
     wasmJs {
+        nodejs()
         browser {
             commonWebpackConfig {
                 devServer = (devServer ?: org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpackConfig.DevServer()).apply {
@@ -27,6 +35,8 @@ kotlin {
         commonMain {
             dependencies {
                 implementation(projects.kioarch)
+                implementation(projects.sample)
+                implementation(libs.compose.ui)
                 implementation("org.jetbrains.kotlinx:kotlinx-browser:0.5.0")
             }
         }

@@ -360,7 +360,7 @@ private fun isNodeJs(): Boolean = js(
     "typeof process !== 'undefined' && process.versions != null && process.versions.node != null"
 ) as Boolean
 
-private class NodeFileSeekableSource(private val pathStr: String) : SeekableSource {
+public class NodeFileSeekableSource(private val pathStr: String) : SeekableSource {
     private val fs: dynamic = js("eval('require')('fs')")
     private val fd: Int
     private var pos: Long = 0L

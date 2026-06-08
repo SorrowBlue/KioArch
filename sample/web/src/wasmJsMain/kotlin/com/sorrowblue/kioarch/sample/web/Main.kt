@@ -18,10 +18,15 @@
 
 package com.sorrowblue.kioarch.sample.web
 
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.ComposeViewport
 import com.sorrowblue.kioarch.KioArch
 import com.sorrowblue.kioarch.ArchiveReader
 import com.sorrowblue.kioarch.ArchiveEntry
 import com.sorrowblue.kioarch.extractToByteArray
+import com.sorrowblue.kioarch.sample.KioarchSampleApp
+import com.sorrowblue.kioarch.sample.WebContext
 import kotlinx.browser.document
 import kotlinx.browser.window
 import org.w3c.dom.HTMLDivElement
@@ -65,6 +70,7 @@ private var activeBlobUrl: String? = null
 /**
  * Entry point for the Kotlin/WasmJS Sample Web Application.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 public fun main() {
     println("[KioArch Demo] main() started. Loading WebAssembly module...")
     // Initialize KioArch using Emscripten Wasm module promise
@@ -72,7 +78,9 @@ public fun main() {
         println("[KioArch Demo] WebAssembly module loaded! Initializing KioArch...")
         KioArch.initialize(module)
         println("[KioArch Demo] KioArch initialized successfully. Launching initApp()...")
-        initApp()
+        ComposeViewport {
+            KioarchSampleApp(WebContext)
+        }
         module
     }
 }

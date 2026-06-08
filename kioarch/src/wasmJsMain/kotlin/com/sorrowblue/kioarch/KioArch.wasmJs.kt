@@ -20,7 +20,7 @@ import kotlinx.io.Sink
 import kotlinx.io.files.Path
 
 // Global reference to track active Wasm module instance
-private var wasmModule: JsAny? = null
+public var wasmModule: JsAny? = null
 
 private const val SOURCE_STRUCT_SIZE = 20
 private const val ENTRY_STRUCT_SIZE = 24
@@ -263,7 +263,7 @@ private fun putWasmSourceCallbacks(module: JsAny, sourceOpaqueId: Int) {
     )
 }
 
-private class NodeFileSeekableSource(private val pathStr: String, private val module: JsAny) :
+public class NodeFileSeekableSource(private val pathStr: String, private val module: JsAny) :
     SeekableSource {
     private val fd: Int
     private var pos: Long = 0L
