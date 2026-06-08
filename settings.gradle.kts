@@ -42,4 +42,4 @@ include(":kioarch")
 include(":kioarch:android")
 include(":sample:android")
 include(":sample:web")
-
+include(":sample:jvm")
