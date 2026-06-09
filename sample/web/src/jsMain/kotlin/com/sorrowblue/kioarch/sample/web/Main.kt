@@ -14,33 +14,31 @@
  * limitations under the License.
  */
 
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-
 package com.sorrowblue.kioarch.sample.web
 
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.window.ComposeViewport
 import com.sorrowblue.kioarch.KioArch
-import com.sorrowblue.kioarch.loadKioArchModule
 import com.sorrowblue.kioarch.sample.KioarchSampleApp
 import com.sorrowblue.kioarch.sample.WebContext
 import kotlin.js.Promise
 
+@JsName("createKioArchModule")
+private external fun createKioArchModuleJs(): Promise<Any>
+
 /**
- * Entry point for the Kotlin/WasmJS Sample Web Application.
+ * Entry point for the Kotlin/JS Sample Web Application.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 public fun main() {
-    println("[KioArch Demo] main() started. Loading WebAssembly module...")
-    // Initialize KioArch using Emscripten Wasm module promise
-    loadKioArchModule().then { module ->
-        println("[KioArch Demo] WebAssembly module loaded! Initializing KioArch...")
+    println("[KioArch Demo] [JS] main() started. Loading WebAssembly module...")
+    createKioArchModuleJs().then { module ->
+        println("[KioArch Demo] [JS] WebAssembly module loaded! Initializing KioArch...")
         KioArch.initialize(module)
-        println("[KioArch Demo] KioArch initialized successfully. Launching initApp()...")
+        println("[KioArch Demo] [JS] KioArch initialized successfully. Launching App...")
         ComposeViewport {
             KioarchSampleApp(WebContext)
         }
         module
     }
 }
-

@@ -5,6 +5,12 @@ plugins {
     id("kioarch.detekt")
 }
 
+val copyWasmNativesToBuildResources by tasks.registering(Copy::class) {
+    dependsOn(":kioarch:compileWasmNatives")
+    from(project(":kioarch").layout.buildDirectory.dir("generated/wasm/natives"))
+    into(layout.buildDirectory.dir("generated/wasm/natives"))
+}
+
 kotlin {
     explicitApi()
 
@@ -33,6 +39,7 @@ kotlin {
 
     sourceSets {
         commonMain {
+            resources.srcDir(copyWasmNativesToBuildResources.map { it.destinationDir })
             dependencies {
                 implementation(projects.kioarch)
                 implementation(projects.sample)
@@ -43,13 +50,13 @@ kotlin {
     }
 }
 
-val copyWasmNativesToResources by tasks.registering(Copy::class) {
-    dependsOn(":kioarch:compileWasmNatives")
-    from(project(":kioarch").layout.buildDirectory.dir("generated/wasm/natives"))
-    into(layout.projectDirectory.dir("src/wasmJsMain/resources"))
-}
+
 
 tasks.named("wasmJsProcessResources") {
-    dependsOn(copyWasmNativesToResources)
+    dependsOn(copyWasmNativesToBuildResources)
+}
+
+tasks.named("jsProcessResources") {
+    dependsOn(copyWasmNativesToBuildResources)
 }
 

@@ -8,7 +8,6 @@ import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.path
 import io.github.vinceglb.filekit.readBytes
 
-@OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
 @JsFun("() => (typeof process !== 'undefined' && process.versions != null && process.versions.node != null)")
 private external fun isNodeJs(): Boolean
 
