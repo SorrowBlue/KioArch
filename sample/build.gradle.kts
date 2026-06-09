@@ -35,13 +35,18 @@ kotlin {
         commonMain {
             dependencies {
                 implementation(projects.kioarch)
+
+                implementation(libs.kotlinx.coroutines.core)
+
                 implementation(libs.androidx.lifecycle.viewmodelCompose)
-                implementation(libs.compose.runtime)
+
+                implementation(libs.compose.componentsResources)
                 implementation(libs.compose.foundation)
                 implementation(libs.compose.material3)
+                implementation(libs.compose.runtime)
                 implementation(libs.compose.uiToolingPreview)
+
                 implementation(libs.filekit.dialogsCompose)
-                implementation(libs.kotlinx.coroutines.core)
             }
         }
 
@@ -50,6 +55,9 @@ kotlin {
                 implementation(libs.androidx.documentfile)
             }
         }
+    }
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
     }
 }
 

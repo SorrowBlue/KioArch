@@ -175,17 +175,48 @@ internal fun readHeap64Double(module: JsAny, ptr: Int, offset: Int): Double =
         }
         if (len === 0) return "";
         var bytes = new Uint8Array(module.HEAPU8.buffer, namePtr, len);
-        try {
-            var utf8Decoder = new TextDecoder('utf-8', { fatal: true });
-            return utf8Decoder.decode(bytes);
-        } catch (e) {
-            try {
-                var sjisDecoder = new TextDecoder('shift-jis');
-                return sjisDecoder.decode(bytes);
-            } catch (err) {
-                return module.UTF8ToString(namePtr);
+        
+        var isUtf8 = true;
+        var i = 0;
+        while (i < bytes.length) {
+            var b1 = bytes[i];
+            if (b1 <= 0x7F) {
+                i++;
+            } else if (b1 >= 0xC2 && b1 <= 0xDF) {
+                if (i + 1 >= bytes.length || bytes[i+1] < 0x80 || bytes[i+1] > 0xBF) { isUtf8 = false; break; }
+                i += 2;
+            } else if (b1 >= 0xE0 && b1 <= 0xEF) {
+                if (i + 2 >= bytes.length || bytes[i+1] < 0x80 || bytes[i+1] > 0xBF || bytes[i+2] < 0x80 || bytes[i+2] > 0xBF) { isUtf8 = false; break; }
+                if (b1 === 0xE0 && bytes[i+1] < 0xA0) { isUtf8 = false; break; }
+                if (b1 === 0xED && bytes[i+1] > 0x9F) { isUtf8 = false; break; }
+                i += 3;
+            } else if (b1 >= 0xF0 && b1 <= 0xF4) {
+                if (i + 3 >= bytes.length || bytes[i+1] < 0x80 || bytes[i+1] > 0xBF || bytes[i+2] < 0x80 || bytes[i+2] > 0xBF || bytes[i+3] < 0x80 || bytes[i+3] > 0xBF) { isUtf8 = false; break; }
+                if (b1 === 0xF0 && bytes[i+1] < 0x90) { isUtf8 = false; break; }
+                if (b1 === 0xF4 && bytes[i+1] > 0x8F) { isUtf8 = false; break; }
+                i += 4;
+            } else {
+                isUtf8 = false;
+                break;
             }
         }
+        
+        if (isUtf8) {
+            try {
+                var utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+                return utf8Decoder.decode(bytes);
+            } catch (e) {}
+        }
+        
+        var sjisLabels = ['shift_jis', 'shift-jis', 'windows-31j', 'x-sjis'];
+        for (var j = 0; j < sjisLabels.length; j++) {
+            try {
+                var sjisDecoder = new TextDecoder(sjisLabels[j]);
+                return sjisDecoder.decode(bytes);
+            } catch (err) {}
+        }
+        
+        return module.UTF8ToString(namePtr);
     }"""
 )
 private external fun wasmUtf8ToStringInternal(module: JsAny, namePtr: Int): String

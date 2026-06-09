@@ -1,5 +1,6 @@
 package com.sorrowblue.kioarch.sample.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,17 +35,22 @@ import kotlin.math.pow
  * A beautiful, scrollable list showing the individual files and directories inside an archive.
  *
  * @param entries The list of parsed [ArchiveEntry] objects from KioArch.
+ * @param onEntryClick Callback triggered when a file entry is clicked.
  * @param modifier The modifier to be applied to the layout.
  */
 @Composable
-internal fun EntryList(entries: List<ArchiveEntry>, modifier: Modifier = Modifier) {
+internal fun EntryList(
+    entries: List<ArchiveEntry>,
+    onEntryClick: (ArchiveEntry) -> Unit,
+    modifier: Modifier = Modifier
+) {
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(entries) { entry ->
-            EntryItem(entry = entry)
+            EntryItem(entry = entry, onEntryClick = onEntryClick)
         }
     }
 }
@@ -53,9 +59,11 @@ private const val HEX_RADIX = 16
 private const val BYTES_IN_KB = 1024.0
 
 @Composable
-private fun EntryItem(entry: ArchiveEntry) {
+private fun EntryItem(entry: ArchiveEntry, onEntryClick: (ArchiveEntry) -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !entry.isDirectory) { onEntryClick(entry) },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
         ),

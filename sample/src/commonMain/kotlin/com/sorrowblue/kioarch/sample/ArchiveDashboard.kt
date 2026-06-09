@@ -3,6 +3,7 @@ package com.sorrowblue.kioarch.sample
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -13,10 +14,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -26,20 +31,27 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
+import com.sorrowblue.kioarch.ArchiveEntry
 import com.sorrowblue.kioarch.sample.components.EntryList
+import com.sorrowblue.kioarch.sample.components.decodeByteArrayToImageBitmap
 import com.sorrowblue.kioarch.sample.components.icons.Archive
 import com.sorrowblue.kioarch.sample.components.icons.CheckCircle
 import com.sorrowblue.kioarch.sample.components.icons.Error
@@ -58,6 +70,7 @@ import com.sorrowblue.kioarch.sample.components.icons.Icons
 internal fun ArchiveDashboard(modifier: Modifier = Modifier) {
     val state = rememberArchiveDashboardState()
     val uiState by state.uiState
+    val previewState by state.previewState
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -81,11 +94,19 @@ internal fun ArchiveDashboard(modifier: Modifier = Modifier) {
                 onClickSelect = { state.onClickSelect() },
                 onExtractClick = { state.onExtractClick() },
                 onResetClick = { state.resetState() },
+                onEntryClick = { state.onEntryClick(it) },
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             )
         }
+    }
+
+    if (previewState != PreviewState.Idle) {
+        PreviewDialog(
+            previewState = previewState,
+            onDismiss = { state.dismissPreview() }
+        )
     }
 }
 
@@ -96,6 +117,7 @@ private fun AnimatedStateContainer(
     onClickSelect: () -> Unit,
     onExtractClick: () -> Unit,
     onResetClick: () -> Unit,
+    onEntryClick: (ArchiveEntry) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier) {
@@ -134,7 +156,8 @@ private fun AnimatedStateContainer(
                 LoadedSection(
                     state = state,
                     onExtractClick = onExtractClick,
-                    onResetClick = onResetClick
+                    onResetClick = onResetClick,
+                    onEntryClick = onEntryClick
                 )
             }
         }
@@ -292,7 +315,8 @@ private fun LoadingSection(message: String) {
 private fun LoadedSection(
     state: MainUiState.Loaded,
     onExtractClick: () -> Unit,
-    onResetClick: () -> Unit
+    onResetClick: () -> Unit,
+    onEntryClick: (ArchiveEntry) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Card(
@@ -343,7 +367,7 @@ private fun LoadedSection(
 
         // Embedded scrollable archive entry list
         Box(modifier = Modifier.weight(1f)) {
-            EntryList(entries = state.entries)
+            EntryList(entries = state.entries, onEntryClick = onEntryClick)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -463,4 +487,117 @@ private fun ErrorSection(state: MainUiState.Error, onBackClick: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+@Suppress("LongMethod", "MagicNumber")
+private fun PreviewDialog(
+    previewState: PreviewState,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", fontWeight = FontWeight.Bold)
+            }
+        },
+        title = {
+            Text(
+                text = when (previewState) {
+                    is PreviewState.Text -> "Text Preview"
+                    is PreviewState.Image -> "Image Preview"
+                    is PreviewState.Unsupported -> "Unsupported Format"
+                    is PreviewState.Error -> "Error"
+                    PreviewState.Loading -> "Loading..."
+                    PreviewState.Idle -> ""
+                },
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+        },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                when (previewState) {
+                    PreviewState.Loading -> {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                    is PreviewState.Text -> {
+                        val scrollState = rememberScrollState()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .padding(12.dp)
+                                .verticalScroll(scrollState)
+                        ) {
+                            Text(
+                                text = previewState.content,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    is PreviewState.Image -> {
+                        val bitmap = remember(previewState.bytes) {
+                            decodeByteArrayToImageBitmap(previewState.bytes)
+                        }
+                        Image(
+                            bitmap = bitmap,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxWidth(),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                    is PreviewState.Unsupported -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Error,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "対応していない形式です。 (.${previewState.extension})",
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    is PreviewState.Error -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Error,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = previewState.message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    PreviewState.Idle -> {}
+                }
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        properties = DialogProperties(usePlatformDefaultWidth = true)
+    )
 }

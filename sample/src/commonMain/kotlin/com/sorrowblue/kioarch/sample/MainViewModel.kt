@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.io.Buffer
+import kotlinx.io.readByteArray
 
 /**
  * UI State representing the state of the main archive processing dashboard.
@@ -45,6 +46,18 @@ internal sealed interface MainUiState {
 }
 
 /**
+ * UI State representing the preview of a single entry in the archive.
+ */
+internal sealed interface PreviewState {
+    data object Idle : PreviewState
+    data object Loading : PreviewState
+    data class Text(val content: String) : PreviewState
+    data class Image(val bytes: ByteArray) : PreviewState
+    data class Unsupported(val extension: String) : PreviewState
+    data class Error(val message: String) : PreviewState
+}
+
+/**
  * ViewModel that coordinates non-blocking archive analysis and extraction operations
  * using Coroutines and [KioArch] on the Android platform.
  */
@@ -58,6 +71,57 @@ internal class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dis
      * Exposes the read-only [StateFlow] representing the current UI state of the app.
      */
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+
+    private val _previewState = MutableStateFlow<PreviewState>(PreviewState.Idle)
+    val previewState: StateFlow<PreviewState> = _previewState.asStateFlow()
+
+    /**
+     * Asynchronously extracts and previews the contents of a specific [ArchiveEntry].
+     */
+    fun previewEntry(context: PlatformContext, entry: ArchiveEntry) {
+        if (entry.isDirectory) return
+
+        val ext = entry.name.substringAfterLast('.', "").lowercase()
+        val isImage = ext in listOf("png", "jpg", "jpeg", "webp", "gif", "bmp")
+        val isText = ext in listOf("txt", "log", "md", "json", "xml", "html", "css", "js", "kt", "properties", "gradle", "kts", "toml")
+
+        if (!isImage && !isText) {
+            _previewState.value = PreviewState.Unsupported(ext)
+            return
+        }
+
+        _previewState.value = PreviewState.Loading
+
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                val file = currentPlatformFile ?: throw IllegalStateException("No archive file loaded")
+                createSeekableSource(context, file).use { source ->
+                    KioArch.createReader(source).use { reader ->
+                        val buffer = Buffer()
+                        val target = reader.getEntries().find { it.index == entry.index }
+                            ?: throw IllegalArgumentException("Entry not found in archive")
+                        reader.extractEntry(target, buffer)
+                        val bytes = buffer.readByteArray()
+
+                        if (isImage) {
+                            _previewState.value = PreviewState.Image(bytes)
+                        } else {
+                            _previewState.value = PreviewState.Text(bytes.decodeToString())
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                _previewState.value = PreviewState.Error(e.message ?: "Failed to load preview")
+            }
+        }
+    }
+
+    /**
+     * Closes the preview dialog and resets the preview state.
+     */
+    fun dismissPreview() {
+        _previewState.value = PreviewState.Idle
+    }
 
     private var currentPlatformFile: PlatformFile? = null
     private var currentFileName: String = ""

@@ -53,9 +53,33 @@ abstract class CompileWasmNativesTask @Inject constructor(
         val isWindows = System.getProperty("os.name").lowercase().contains("windows")
         val emsdkPath = emsdkDir.orNull
 
-        configureCMake(sourceDir, isWindows, emsdkPath)
-        buildCMake(sourceDir, isWindows, emsdkPath)
-        copyArtifacts(buildDir)
+        try {
+            configureCMake(sourceDir, isWindows, emsdkPath)
+            buildCMake(sourceDir, isWindows, emsdkPath)
+            copyArtifacts(buildDir)
+        } catch (e: Exception) {
+            val webResourcesDir = project.project(":sample:web").layout.projectDirectory.dir("src/wasmJsMain/resources")
+            val hasPrebuilt = webResourcesDir.file("kioarch.js").asFile.exists() && 
+                             webResourcesDir.file("kioarch.wasm").asFile.exists()
+
+            if (hasPrebuilt) {
+                logger.warn("====================================================================================")
+                logger.warn("WARNING: WebAssembly native build failed: ${e.message}")
+                logger.warn("Using existing pre-built artifacts in :sample:web resources directory.")
+                logger.warn("If you modified C/C++ files, they will NOT be recompiled.")
+                logger.warn("====================================================================================")
+                
+                val jsFile = webResourcesDir.file("kioarch.js").asFile
+                val wasmFile = webResourcesDir.file("kioarch.wasm").asFile
+                fileSystemOperations.copy {
+                    from(jsFile)
+                    from(wasmFile)
+                    into(outputDir.get())
+                }
+            } else {
+                throw GradleException("Failed to compile WebAssembly natives and no pre-built artifacts were found.", e)
+            }
+        }
     }
 
     private fun configureCMake(sourceDir: File, isWindows: Boolean, emsdkPath: String?) {
@@ -156,6 +180,8 @@ abstract class CompileWasmNativesTask @Inject constructor(
         val process = ProcessBuilder(
             "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe",
             "-latest",
+            "-products",
+            "*",
             "-property",
             "installationPath"
         )

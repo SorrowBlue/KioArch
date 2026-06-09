@@ -7,7 +7,7 @@ import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.toAndroidUri
 import java.io.IOException
 
-internal actual fun createSeekableSource(
+internal actual suspend fun createSeekableSource(
     context: PlatformContext,
     file: PlatformFile
 ): SeekableSource {
