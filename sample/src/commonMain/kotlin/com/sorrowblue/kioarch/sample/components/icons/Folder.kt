@@ -1,6 +1,5 @@
 package com.sorrowblue.kioarch.sample.components.icons
 
-
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
@@ -24,7 +23,7 @@ private val folder: ImageVector
                 defaultWidth = 24.dp,
                 defaultHeight = 24.dp,
                 viewportWidth = 24f,
-                viewportHeight = 24f,
+                viewportHeight = 24f
             )
                 .apply {
                     path(
@@ -36,7 +35,7 @@ private val folder: ImageVector
                         strokeLineCap = StrokeCap.Butt,
                         strokeLineJoin = StrokeJoin.Bevel,
                         strokeLineMiter = 1f,
-                        pathFillType = PathFillType.Companion.NonZero,
+                        pathFillType = PathFillType.Companion.NonZero
                     ) {
                         moveTo(4f, 20f)
                         quadTo(3.18f, 20f, 2.59f, 19.41f)

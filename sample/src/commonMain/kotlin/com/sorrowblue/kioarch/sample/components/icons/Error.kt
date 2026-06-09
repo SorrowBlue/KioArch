@@ -23,7 +23,7 @@ private val error: ImageVector
                 defaultWidth = 24.dp,
                 defaultHeight = 24.dp,
                 viewportWidth = 24f,
-                viewportHeight = 24f,
+                viewportHeight = 24f
             )
                 .apply {
                     path(
@@ -35,7 +35,7 @@ private val error: ImageVector
                         strokeLineCap = StrokeCap.Butt,
                         strokeLineJoin = StrokeJoin.Bevel,
                         strokeLineMiter = 1f,
-                        pathFillType = PathFillType.Companion.NonZero,
+                        pathFillType = PathFillType.Companion.NonZero
                     ) {
                         moveTo(12.71f, 16.71f)
                         quadTo(13f, 16.43f, 13f, 16f)

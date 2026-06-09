@@ -83,7 +83,9 @@ internal class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dis
 
         val ext = entry.name.substringAfterLast('.', "").lowercase()
         val isImage = ext in listOf("png", "jpg", "jpeg", "webp", "gif", "bmp")
-        val isText = ext in listOf("txt", "log", "md", "json", "xml", "html", "css", "js", "kt", "properties", "gradle", "kts", "toml")
+        val isText =
+            ext in
+                listOf("txt", "log", "md", "json", "xml", "html", "css", "js", "kt", "properties", "gradle", "kts", "toml")
 
         if (!isImage && !isText) {
             _previewState.value = PreviewState.Unsupported(ext)
@@ -94,7 +96,9 @@ internal class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dis
 
         viewModelScope.launch(ioDispatcher) {
             try {
-                val file = currentPlatformFile ?: throw IllegalStateException("No archive file loaded")
+                val file = currentPlatformFile ?: throw IllegalStateException(
+                    "No archive file loaded"
+                )
                 createSeekableSource(context, file).use { source ->
                     KioArch.createReader(source).use { reader ->
                         val buffer = Buffer()
@@ -177,7 +181,10 @@ internal class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dis
                                 val buffer = Buffer()
                                 reader.extractEntry(entry, buffer)
 
-                                val parentDir = getOrCreateParentDirectory(destinationFolder, entry.name)
+                                val parentDir = getOrCreateParentDirectory(
+                                    destinationFolder,
+                                    entry.name
+                                )
                                 val baseName = getBaseName(entry.name)
 
                                 val newFile = parentDir?.createFile(context, baseName)

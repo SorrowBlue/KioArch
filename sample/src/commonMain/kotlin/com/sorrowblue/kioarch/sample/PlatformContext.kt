@@ -7,7 +7,8 @@ internal val LocalPlatformContext = staticCompositionLocalOf<PlatformContext> {
     throw IllegalStateException("PlatformContext")
 }
 
-internal fun providePlatformContext(platformContext: PlatformContext): ProvidedValue<PlatformContext> =
-    LocalPlatformContext provides platformContext
+internal fun providePlatformContext(
+    platformContext: PlatformContext
+): ProvidedValue<PlatformContext> = LocalPlatformContext provides platformContext
 
 expect abstract class PlatformContext

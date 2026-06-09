@@ -6,7 +6,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sorrowblue.kioarch.ArchiveEntry
-import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.dialogs.FileKitMode
 import io.github.vinceglb.filekit.dialogs.FileKitType
 import io.github.vinceglb.filekit.dialogs.compose.PickerResultLauncher
@@ -38,7 +37,9 @@ internal fun rememberArchiveDashboardState(): ArchiveDashboardState {
     state.filePickerLauncher = rememberFilePickerLauncher(
         type = FileKitType.File(
             extensions = listOf("zip", "7z", "tar.gz", "tgz")
-        ), mode = FileKitMode.Single, onResult = { file ->
+        ),
+        mode = FileKitMode.Single,
+        onResult = { file ->
             file?.let {
                 viewModel.loadArchive(platformContext, it)
             }

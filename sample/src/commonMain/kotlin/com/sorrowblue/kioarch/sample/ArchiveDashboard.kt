@@ -428,7 +428,7 @@ private fun SuccessSection(state: MainUiState.Success, onBackClick: () -> Unit) 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "${state.fileName} has been extracted without " +
-                        "any intermediate filesystem files.",
+                    "any intermediate filesystem files.",
                 textAlign = TextAlign.Center,
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -491,10 +491,7 @@ private fun ErrorSection(state: MainUiState.Error, onBackClick: () -> Unit) {
 
 @Composable
 @Suppress("LongMethod", "MagicNumber")
-private fun PreviewDialog(
-    previewState: PreviewState,
-    onDismiss: () -> Unit
-) {
+private fun PreviewDialog(previewState: PreviewState, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -526,12 +523,15 @@ private fun PreviewDialog(
                     PreviewState.Loading -> {
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     }
+
                     is PreviewState.Text -> {
                         val scrollState = rememberScrollState()
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                )
                                 .padding(12.dp)
                                 .verticalScroll(scrollState)
                         ) {
@@ -542,6 +542,7 @@ private fun PreviewDialog(
                             )
                         }
                     }
+
                     is PreviewState.Image -> {
                         val bitmap = remember(previewState.bytes) {
                             decodeByteArrayToImageBitmap(previewState.bytes)
@@ -553,6 +554,7 @@ private fun PreviewDialog(
                             contentScale = ContentScale.Fit
                         )
                     }
+
                     is PreviewState.Unsupported -> {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -572,6 +574,7 @@ private fun PreviewDialog(
                             )
                         }
                     }
+
                     is PreviewState.Error -> {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -592,6 +595,7 @@ private fun PreviewDialog(
                             )
                         }
                     }
+
                     PreviewState.Idle -> {}
                 }
             }

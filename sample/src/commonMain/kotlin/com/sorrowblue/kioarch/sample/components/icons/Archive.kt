@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
-internal val Icons.Archive get()= archive
+internal val Icons.Archive get() = archive
 
 @Suppress("CheckReturnValue")
 private val archive: ImageVector
@@ -23,7 +23,7 @@ private val archive: ImageVector
                 defaultWidth = 24.dp,
                 defaultHeight = 24.dp,
                 viewportWidth = 24f,
-                viewportHeight = 24f,
+                viewportHeight = 24f
             )
                 .apply {
                     path(
@@ -35,7 +35,7 @@ private val archive: ImageVector
                         strokeLineCap = StrokeCap.Butt,
                         strokeLineJoin = StrokeJoin.Bevel,
                         strokeLineMiter = 1f,
-                        pathFillType = PathFillType.NonZero,
+                        pathFillType = PathFillType.NonZero
                     ) {
                         moveTo(12f, 18f)
                         lineToRelative(4f, -4f)

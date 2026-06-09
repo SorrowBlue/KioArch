@@ -1,6 +1,5 @@
 package com.sorrowblue.kioarch.sample.components.icons
 
-
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
@@ -10,7 +9,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
-internal val Icons.CheckCircle get()= check_circle
+internal val Icons.CheckCircle get() = check_circle
 
 @Suppress("CheckReturnValue")
 private val check_circle: ImageVector
@@ -24,7 +23,7 @@ private val check_circle: ImageVector
                 defaultWidth = 24.dp,
                 defaultHeight = 24.dp,
                 viewportWidth = 24f,
-                viewportHeight = 24f,
+                viewportHeight = 24f
             )
                 .apply {
                     path(
@@ -36,7 +35,7 @@ private val check_circle: ImageVector
                         strokeLineCap = StrokeCap.Butt,
                         strokeLineJoin = StrokeJoin.Bevel,
                         strokeLineMiter = 1f,
-                        pathFillType = PathFillType.Companion.NonZero,
+                        pathFillType = PathFillType.Companion.NonZero
                     ) {
                         moveTo(10.6f, 16.6f)
                         lineTo(17.65f, 9.55f)
