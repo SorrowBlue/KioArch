@@ -10,6 +10,7 @@
       </option>
       <option name="taskNames">
         <list>
+          <option value=":build-logic:detektMain" />
           <option value="reportMerge" />
           <option value="detektDebug" />
           <option value="detektDebugAndroidTest" />
