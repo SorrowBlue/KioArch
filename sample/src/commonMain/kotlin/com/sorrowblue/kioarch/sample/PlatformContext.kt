@@ -11,4 +11,5 @@ internal fun providePlatformContext(
     platformContext: PlatformContext
 ): ProvidedValue<PlatformContext> = LocalPlatformContext provides platformContext
 
+@Suppress("AbstractClassCanBeInterface")
 expect abstract class PlatformContext

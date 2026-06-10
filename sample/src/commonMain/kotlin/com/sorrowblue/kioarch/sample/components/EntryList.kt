@@ -55,8 +55,8 @@ internal fun EntryList(
     }
 }
 
-private const val HEX_RADIX = 16
-private const val BYTES_IN_KB = 1024.0
+private const val HExRadix = 16
+private const val BytesInKB = 1024.0
 
 @Composable
 private fun EntryItem(entry: ArchiveEntry, onEntryClick: (ArchiveEntry) -> Unit) {
@@ -129,7 +129,7 @@ private fun EntryItemDetails(
         )
         if (!isDirectory) {
             Text(
-                text = "CRC: ${crc.toString(HEX_RADIX).uppercase()}",
+                text = "CRC: ${crc.toString(HExRadix).uppercase()}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
@@ -159,8 +159,8 @@ private fun EntryItemSize(isDirectory: Boolean, size: Long) {
 private fun formatFileSize(size: Long): String {
     if (size <= 0) return "0 B"
     val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (log10(size.toDouble()) / log10(BYTES_IN_KB)).toInt()
-    val a = size / BYTES_IN_KB.pow(digitGroups.toDouble())
+    val digitGroups = (log10(size.toDouble()) / log10(BytesInKB)).toInt()
+    val a = size / BytesInKB.pow(digitGroups.toDouble())
     val unit = units[digitGroups]
     return "${formatDecimal(a, 1)} $unit"
 }

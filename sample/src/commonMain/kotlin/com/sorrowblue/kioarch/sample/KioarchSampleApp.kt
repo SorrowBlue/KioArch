@@ -11,10 +11,8 @@ internal expect fun getAppTypography(): Typography
 
 @Composable
 fun KioarchSampleApp(context: PlatformContext, modifier: Modifier = Modifier) {
-    println("[KioArch Demo] KioarchSampleApp composition started!")
     CompositionLocalProvider(providePlatformContext(context)) {
         MaterialTheme(typography = getAppTypography()) {
-            println("[KioArch Demo] MaterialTheme composition started!")
             ArchiveDashboard(
                 modifier = modifier
             )

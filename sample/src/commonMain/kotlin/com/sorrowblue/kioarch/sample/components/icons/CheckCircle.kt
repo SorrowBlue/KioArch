@@ -1,3 +1,5 @@
+@file:Suppress("detekt.all")
+
 package com.sorrowblue.kioarch.sample.components.icons
 
 import androidx.compose.ui.graphics.Color

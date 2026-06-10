@@ -24,11 +24,15 @@ internal interface ArchiveDashboardState {
 }
 
 @Composable
-internal fun rememberArchiveDashboardState(): ArchiveDashboardState {
-    val viewModel: MainViewModel = viewModel { MainViewModel() }
+internal fun rememberArchiveDashboardState(
+    viewModel: MainViewModel = viewModel {
+        MainViewModel()
+    }
+): ArchiveDashboardState {
     val platformContext = LocalPlatformContext.current
 
     val state = remember(viewModel, platformContext) {
+        @Suppress("ViewModelForwarding")
         ArchiveDashboardStateImpl(viewModel, platformContext)
     }
 

@@ -8,22 +8,13 @@ import io.github.vinceglb.filekit.exceptions.FileKitException
 import io.github.vinceglb.filekit.sink
 import kotlinx.io.RawSink
 
-internal actual fun PlatformFile.div2(child: String): PlatformFile {
-    return this.div(child)
-}
+internal actual fun PlatformFile.div2(child: String): PlatformFile = this.div(child)
 
-internal actual fun PlatformFile.sink2(): RawSink {
-    return this.sink()
-}
+internal actual fun PlatformFile.sink2(): RawSink = this.sink()
 
-internal actual fun PlatformFile.createDirectories2() {
-    return createDirectories()
-}
+internal actual fun PlatformFile.createDirectories2() = createDirectories()
 
-internal actual fun PlatformFile.createFile(
-    context: PlatformContext,
-    name: String
-): PlatformFile {
+internal actual fun PlatformFile.createFile(context: PlatformContext, name: String): PlatformFile {
     val directoryDocument = this.file
     directoryDocument.listFiles().find { it.name == name }?.let { existing ->
         if (existing.isDirectory) {

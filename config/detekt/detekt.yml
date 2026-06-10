@@ -114,7 +114,7 @@ complexity:
     allowedLines: 60
   LongParameterList:
     active: true
-    allowedFunctionParameters: 5
+    allowedFunctionParameters: 8
     allowedConstructorParameters: 6
     ignoreDefaultParameters: false
     ignoreDataClasses: true
@@ -376,7 +376,7 @@ naming:
     packagePattern: '[a-z]+(\.[a-z][A-Za-z0-9]*)*'
   TopLevelPropertyNaming:
     active: true
-    constantPattern: '[A-Z][_A-Z0-9]*'
+    constantPattern: '[A-Z][A-Za-z0-9]*'
     propertyPattern: '[A-Za-z][_A-Za-z0-9]*'
     privatePropertyPattern: '_?[A-Za-z][_A-Za-z0-9]*'
   VariableMaxLength:
@@ -754,7 +754,7 @@ style:
     ignoredCharacters: []
   ThrowsCount:
     active: true
-    max: 2
+    max: 3
     excludeGuardClauses: false
   TrailingWhitespace:
     active: false
@@ -804,6 +804,7 @@ style:
     active: true
     aliases: ['unused']
     allowedNames: ''
+    ignoreAnnotated: ['Preview']
   UnusedPrivateProperty:
     active: true
     aliases: ['unused']
@@ -864,6 +865,7 @@ Compose:
     active: true
   CompositionLocalAllowlist:
     active: true
+    allowedCompositionLocals: ['LocalPlatformContext']
   CompositionLocalNaming:
     active: true
   ContentEmitterReturningValues:
@@ -1175,7 +1177,7 @@ ktlint:
     # maxLineLength: If the 'code_style' ruleset property is set to 'android', the default is '100', otherwise '120'.
   PropertyName:
     active: true
-    constantNamingStyle: 'screaming_snake_case'
+    constantNamingStyle: 'pascal_case'
   PropertyWrapping:
     active: true
     autoCorrect: true

@@ -83,9 +83,7 @@ internal class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dis
 
         val ext = entry.name.substringAfterLast('.', "").lowercase()
         val isImage = ext in listOf("png", "jpg", "jpeg", "webp", "gif", "bmp")
-        val isText =
-            ext in
-                listOf("txt", "log", "md", "json", "xml", "html", "css", "js", "kt", "properties", "gradle", "kts", "toml")
+        val isText = ext in TextFileExtension
 
         if (!isImage && !isText) {
             _previewState.value = PreviewState.Unsupported(ext)
@@ -96,9 +94,7 @@ internal class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dis
 
         viewModelScope.launch(ioDispatcher) {
             try {
-                val file = currentPlatformFile ?: throw IllegalStateException(
-                    "No archive file loaded"
-                )
+                val file = checkNotNull(currentPlatformFile) { "No archive file loaded" }
                 createSeekableSource(context, file).use { source ->
                     KioArch.createReader(source).use { reader ->
                         val buffer = Buffer()
@@ -187,8 +183,8 @@ internal class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dis
                                 )
                                 val baseName = getBaseName(entry.name)
 
-                                val newFile = parentDir?.createFile(context, baseName)
-                                newFile?.sink2()?.use { sink ->
+                                val newFile = parentDir.createFile(context, baseName)
+                                newFile.sink2().use { sink ->
                                     sink.write(buffer, buffer.size)
                                     sink.flush()
                                 }
@@ -232,7 +228,7 @@ internal class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dis
         return current
     }
 
-    private fun getOrCreateParentDirectory(root: PlatformFile, path: String): PlatformFile? {
+    private fun getOrCreateParentDirectory(root: PlatformFile, path: String): PlatformFile {
         val parts = path.split("/").filter { it.isNotEmpty() }
         if (parts.size <= 1) return root
 
@@ -253,3 +249,21 @@ internal class MainViewModel(private val ioDispatcher: CoroutineDispatcher = Dis
 
     private fun getBaseName(path: String): String = path.split("/").lastOrNull() ?: path
 }
+
+private val TextFileExtension =
+    listOf(
+        "txt",
+        "log",
+        "md",
+        "json",
+        "xml",
+        "html",
+        "css",
+        "js",
+        "kt",
+        "properties",
+        "gradle",
+        "kts",
+        "toml",
+        "ini"
+    )
