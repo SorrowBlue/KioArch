@@ -4,7 +4,6 @@ html, body {
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background-color: #1e1e2e; /* 開発用一時背景色（Catppuccin Mocha風ダーク） */
 }
 
 canvas {
