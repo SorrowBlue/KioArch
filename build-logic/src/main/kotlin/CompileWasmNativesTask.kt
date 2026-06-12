@@ -158,6 +158,8 @@ abstract class CompileWasmNativesTask @Inject constructor(
             "-latest",
             "-products",
             "*",
+            "-requires",
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
             "-property",
             "installationPath"
         )

@@ -242,10 +242,34 @@ KioArch features fully automated native compilation during Gradle builds. When y
 
 ### Prerequisites
 
-*   **JDK 21**
-*   **CMake (4.1.2)**
-*   **Android NDK** (for Android cross-compilation)
-*   **Compiler Toolchain**: MSVC (Windows), GCC/Clang (Linux), Xcode/Clang (macOS)
+To build and compile the native libraries, the following environment setup is required based on your target platforms:
+
+#### 1. Common Requirements
+*   **JDK 21** or higher
+*   **CMake (3.22 or higher)**
+
+#### 2. JVM Native Compiler Toolchain (by OS)
+*   **Windows**:
+    *   **Visual Studio 2022** (or **Build Tools 2022**) with the **"Desktop development with C++"** workload.
+    *   Specifically, the following individual components are required:
+        *   `MSVC v143 - VS 2022 C++ x64/x86 build tools` (Latest)
+        *   `Windows 11 SDK` (or Windows 10 SDK)
+*   **macOS**: Xcode Command Line Tools (install via `xcode-select --install`)
+*   **Linux**: GCC/G++ or Clang (install via package manager, e.g., `sudo apt install build-essential`)
+
+#### 3. Android Target
+*   **Android SDK & NDK**
+*   Configure `sdk.dir` and `ndk.dir` paths in your `local.properties` file.
+
+#### 4. JS / Wasm Target
+*   **Emscripten SDK (emsdk)**
+*   Configure the Emscripten installation path in your `local.properties` file:
+    ```properties
+    emsdk.dir=C:\\path\\to\\emsdk
+    ```
+
+#### 5. iOS Target
+*   **macOS host** and **Xcode** installed.
 
 ### Building and Testing
 
