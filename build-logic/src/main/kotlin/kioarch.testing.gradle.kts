@@ -3,10 +3,6 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
 import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest
 
-plugins {
-    // No external plugins need to be applied here.
-}
-
 val generateTestFiles = tasks.register("generateTestFiles", JavaExec::class.java) {
     group = "verification"
     description = "Generates test archives for testing"
