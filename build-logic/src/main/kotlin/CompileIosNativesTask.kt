@@ -35,9 +35,14 @@ abstract class CompileIosNativesTask : DefaultTask() {
 
         // 2a. CMake Build (iOS Device)
         val process2a = ProcessBuilder(
-            "cmake", "--build", "build_ios",
-            "--config", "Release",
-            "--", "-sdk", "iphoneos"
+            "cmake",
+            "--build",
+            "build_ios",
+            "--config",
+            "Release",
+            "--",
+            "-sdk",
+            "iphoneos"
         )
             .directory(sourceDir)
             .redirectErrorStream(true)
@@ -50,9 +55,14 @@ abstract class CompileIosNativesTask : DefaultTask() {
 
         // 2b. CMake Build (iOS Simulator)
         val process2b = ProcessBuilder(
-            "cmake", "--build", "build_ios",
-            "--config", "Release",
-            "--", "-sdk", "iphonesimulator"
+            "cmake",
+            "--build",
+            "build_ios",
+            "--config",
+            "Release",
+            "--",
+            "-sdk",
+            "iphonesimulator"
         )
             .directory(sourceDir)
             .redirectErrorStream(true)

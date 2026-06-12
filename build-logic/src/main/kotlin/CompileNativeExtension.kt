@@ -1,7 +1,7 @@
+import javax.inject.Inject
 import org.gradle.api.Action
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.model.ObjectFactory
-import javax.inject.Inject
 
 open class CompileNativeExtension @Inject constructor(objects: ObjectFactory) {
     val cppSourceDir: DirectoryProperty = objects.directoryProperty()

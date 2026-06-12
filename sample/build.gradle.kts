@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.multiplatformLibrary)
@@ -24,6 +26,7 @@ kotlin {
             freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
         }
     }
+    @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
         nodejs()
         browser {}

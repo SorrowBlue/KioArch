@@ -53,7 +53,7 @@ kotlin {
     iosTargets.forEach { target ->
         target.compilations.getByName("main") {
             val kioarch by cinterops.creating {
-                defFile = project.file("src/nativeInterop/cinterop/kioarch.def")
+                definitionFile = project.file("src/nativeInterop/cinterop/kioarch.def")
                 includeDirs(
                     project.file("src/cpp")
                 )

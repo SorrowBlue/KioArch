@@ -1,7 +1,6 @@
 import org.gradle.api.provider.ProviderFactory
-import java.io.Serializable
 
-enum class TargetOs(val osName: String, val libName: String, val output: String) : Serializable {
+enum class TargetOs(val osName: String, val libName: String, val output: String) {
     Windows("win", "kioarch.dll", "windows/amd64"),
     MacOS("mac", "libkioarch.dylib", "macos/universal"),
     Linux("linux", "libkioarch.so", "linux/amd64");

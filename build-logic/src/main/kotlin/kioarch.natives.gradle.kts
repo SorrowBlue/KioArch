@@ -1,9 +1,5 @@
-import java.util.Properties
 import TargetOs.Companion.currentOs
-
-plugins {
-    // No external plugins need to be applied here.
-}
+import java.util.Properties
 
 val config = extensions.create("compileNative", CompileNativeExtension::class.java)
 

@@ -42,52 +42,53 @@ abstract class CompileJvmNativesTask @Inject constructor(
         if (!isCommandAvailable("cmake")) {
             throw GradleException(
                 "CMake is not installed or not available in your PATH.\n" +
-                "Please install CMake and ensure it is registered in your system PATH."
+                    "Please install CMake and ensure it is registered in your system PATH."
             )
         }
 
         if (targetOs.get() == TargetOs.Windows) {
-            val hasCompiler = isCommandAvailable("cl") || 
-                              isCommandAvailable("gcc") || 
-                              isCommandAvailable("clang") || 
-                              hasVisualStudioInstalled()
+            val hasCompiler = isCommandAvailable("cl") ||
+                isCommandAvailable("gcc") ||
+                isCommandAvailable("clang") ||
+                hasVisualStudioInstalled()
             if (!hasCompiler) {
                 throw GradleException(
                     "C/C++ compiler could not be found.\n" +
-                    "For Windows, please ensure Visual Studio is installed with the 'Desktop development with C++' workload.\n" +
-                    "Alternatively, install a compatible compiler like MinGW or Clang and add it to your PATH."
+                        "For Windows, please ensure Visual Studio is installed with " +
+                        "the 'Desktop development with C++' workload.\n" +
+                        "Alternatively, install a compatible compiler like MinGW or " +
+                        "Clang and add it to your PATH."
                 )
             }
         }
     }
 
-    private fun isCommandAvailable(command: String): Boolean {
-        return try {
-            val checkCmd = if (System.getProperty("os.name").lowercase().contains("windows")) {
-                listOf("where", command)
-            } else {
-                listOf("which", command)
-            }
-            val process = ProcessBuilder(checkCmd).start()
-            process.waitFor() == 0
-        } catch (e: Exception) {
-            false
+    private fun isCommandAvailable(command: String): Boolean = runCatching {
+        val checkCmd = if (System.getProperty("os.name").lowercase().contains("windows")) {
+            listOf("where", command)
+        } else {
+            listOf("which", command)
         }
-    }
+        val process = ProcessBuilder(checkCmd).start()
+        process.waitFor() == 0
+    }.getOrDefault(false)
 
-    private fun hasVisualStudioInstalled(): Boolean {
-        return findVcvarsallBat() != null
-    }
+    private fun hasVisualStudioInstalled(): Boolean = findVcvarsallBat() != null
 
-    private fun findVcvarsallBat(): File? = try {
-        val vswhere = File("C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe")
+    private fun findVcvarsallBat(): File? = runCatching {
+        val vswhere = File(
+            "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
+        )
         if (vswhere.exists()) {
             val process = ProcessBuilder(
                 vswhere.absolutePath,
                 "-latest",
-                "-products", "*",
-                "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-                "-property", "installationPath"
+                "-products",
+                "*",
+                "-requires",
+                "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                "-property",
+                "installationPath"
             ).start()
             val path = process.inputStream.bufferedReader().readText().trim()
             if (process.waitFor() == 0 && path.isNotEmpty()) {
@@ -99,15 +100,17 @@ abstract class CompileJvmNativesTask @Inject constructor(
         } else {
             null
         }
-    } catch (e: Exception) {
-        null
-    }
+    }.getOrNull()
 
     private fun configureCMake(sourceDir: File) {
         val configureArgs = if (targetOs.get() == TargetOs.Windows) {
             val vcvarsall = findVcvarsallBat()
             if (vcvarsall != null) {
-                listOf("cmd", "/c", "call \"${vcvarsall.absolutePath}\" amd64 && cmake -S . -B build")
+                listOf(
+                    "cmd",
+                    "/c",
+                    "call \"${vcvarsall.absolutePath}\" amd64 && cmake -S . -B build"
+                )
             } else {
                 listOf("cmake", "-S", ".", "-B", "build")
             }
@@ -122,8 +125,9 @@ abstract class CompileJvmNativesTask @Inject constructor(
                 .start()
         } catch (e: java.io.IOException) {
             throw GradleException(
-                "Failed to run 'cmake'. Please make sure CMake is installed and available in your PATH.\n" +
-                "Error details: ${e.message}",
+                "Failed to run 'cmake'. " +
+                    "Please make sure CMake is installed and available in your PATH.\n" +
+                    "Error details: ${e.message}",
                 e
             )
         }
@@ -132,7 +136,10 @@ abstract class CompileJvmNativesTask @Inject constructor(
         if (exitCode != 0) {
             logger.error("CMake Configure Output:\n$output")
             val additionalMsg = getCompilerMissingMessage(output)
-            throw GradleException("CMake configure failed with exit code $exitCode.$additionalMsg\n\nCMake Output:\n$output")
+            throw GradleException(
+                "CMake configure failed with exit code $exitCode.$additionalMsg\n\n" +
+                    "CMake Output:\n$output"
+            )
         }
     }
 
@@ -140,7 +147,13 @@ abstract class CompileJvmNativesTask @Inject constructor(
         val buildArgs = if (targetOs.get() == TargetOs.Windows) {
             val vcvarsall = findVcvarsallBat()
             if (vcvarsall != null) {
-                listOf("cmd", "/c", "call \"${vcvarsall.absolutePath}\" amd64 && cmake --build build --config Release")
+                listOf(
+                    "cmd",
+                    "/c",
+                    "call \"${vcvarsall.absolutePath}\" amd64",
+                    "&&",
+                    "cmake --build build --config Release"
+                )
             } else {
                 listOf("cmake", "--build", "build", "--config", "Release")
             }
@@ -155,8 +168,9 @@ abstract class CompileJvmNativesTask @Inject constructor(
                 .start()
         } catch (e: java.io.IOException) {
             throw GradleException(
-                "Failed to run 'cmake --build'. Please make sure CMake is installed and available in your PATH.\n" +
-                "Error details: ${e.message}",
+                "Failed to run 'cmake --build'. " +
+                    "Please make sure CMake is installed and available in your PATH.\n" +
+                    "Error details: ${e.message}",
                 e
             )
         }
@@ -174,7 +188,9 @@ abstract class CompileJvmNativesTask @Inject constructor(
                 val releaseLib = sourceDir.resolve("build/Release/kioarch.dll")
                 if (releaseLib.exists()) releaseLib else sourceDir.resolve("build/kioarch.dll")
             }
+
             TargetOs.MacOS -> sourceDir.resolve("build/libkioarch.dylib")
+
             TargetOs.Linux -> sourceDir.resolve("build/libkioarch.so")
         }
         if (!builtLib.exists()) {
@@ -189,23 +205,26 @@ abstract class CompileJvmNativesTask @Inject constructor(
 
     private fun getCompilerMissingMessage(output: String): String {
         val hasCompilerError = output.contains("CMAKE_C_COMPILER not set") ||
-                output.contains("no such file or directory") ||
-                output.contains("No CMAKE_C_COMPILER could be found")
+            output.contains("no such file or directory") ||
+            output.contains("No CMAKE_C_COMPILER could be found")
         if (!hasCompilerError) return ""
 
         return when (targetOs.get()) {
             TargetOs.Windows -> {
                 "\n\n[Error Reason] C/C++ compiler (MSVC) could not be found.\n" +
-                "For Windows, please ensure Visual Studio is installed with the 'Desktop development with C++' workload.\n" +
-                "Alternatively, make sure a compatible compiler (like MinGW or Clang) is installed and registered in your PATH."
+                    "For Windows, please ensure Visual Studio is installed with the " +
+                    "'Desktop development with C++' workload.\n" +
+                    "Alternatively, make sure a compatible compiler (like MinGW or Clang) is installed and registered in your PATH."
             }
+
             TargetOs.MacOS -> {
                 "\n\n[Error Reason] C/C++ compiler (Clang) could not be found.\n" +
-                "For macOS, please install Xcode Command Line Tools using 'xcode-select --install'."
+                    "For macOS, please install Xcode Command Line Tools using 'xcode-select --install'."
             }
+
             else -> {
                 "\n\n[Error Reason] C/C++ compiler could not be found.\n" +
-                "For Linux, please install gcc/g++ or clang using your package manager (e.g., 'sudo apt install build-essential')."
+                    "For Linux, please install gcc/g++ or clang using your package manager (e.g., 'sudo apt install build-essential')."
             }
         }
     }

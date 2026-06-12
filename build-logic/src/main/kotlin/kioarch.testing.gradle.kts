@@ -1,4 +1,3 @@
-import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
 import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest
@@ -23,13 +22,21 @@ plugins.withId("org.jetbrains.kotlin.multiplatform") {
 val copyJsTestAssets = tasks.register("copyJsTestAssets", Copy::class.java) {
     dependsOn(generateTestFiles)
     from(layout.buildDirectory.dir("tmp/large_tests"))
-    into(project.rootProject.layout.buildDirectory.dir("js/packages/KioArch-root-kioarch-test/kotlin"))
+    into(
+        project.rootProject.layout.buildDirectory.dir(
+            "js/packages/KioArch-root-kioarch-test/kotlin"
+        )
+    )
 }
 
 val copyWasmTestAssets = tasks.register("copyWasmTestAssets", Copy::class.java) {
     dependsOn(generateTestFiles)
     from(layout.buildDirectory.dir("tmp/large_tests"))
-    into(project.rootProject.layout.buildDirectory.dir("wasm/packages/KioArch-root-kioarch-test/kotlin"))
+    into(
+        project.rootProject.layout.buildDirectory.dir(
+            "wasm/packages/KioArch-root-kioarch-test/kotlin"
+        )
+    )
 }
 
 tasks.withType(KotlinNativeTest::class.java).configureEach {
