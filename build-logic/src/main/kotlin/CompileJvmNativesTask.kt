@@ -150,9 +150,7 @@ abstract class CompileJvmNativesTask @Inject constructor(
                 listOf(
                     "cmd",
                     "/c",
-                    "call \"${vcvarsall.absolutePath}\" amd64",
-                    "&&",
-                    "cmake --build build --config Release"
+                    "call \"${vcvarsall.absolutePath}\" amd64 && cmake --build build --config Release"
                 )
             } else {
                 listOf("cmake", "--build", "build", "--config", "Release")
