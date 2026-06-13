@@ -147,10 +147,11 @@ abstract class CompileJvmNativesTask @Inject constructor(
         val buildArgs = if (targetOs.get() == TargetOs.Windows) {
             val vcvarsall = findVcvarsallBat()
             if (vcvarsall != null) {
+                val path = vcvarsall.absolutePath
                 listOf(
                     "cmd",
                     "/c",
-                    "call \"${vcvarsall.absolutePath}\" amd64 && cmake --build build --config Release"
+                    "call \"$path\" amd64 && cmake --build build --config Release"
                 )
             } else {
                 listOf("cmake", "--build", "build", "--config", "Release")
