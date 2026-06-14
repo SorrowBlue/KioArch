@@ -1,14 +1,23 @@
 package com.sorrowblue.kioarch.sample
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.font.FontFamily
 import kioarch_root.sample.generated.resources.Res
 import kioarch_root.sample.generated.resources.noto_sans_jp_regular
 import org.jetbrains.compose.resources.Font
 
-@ReadOnlyComposable
-internal actual fun getAppTypography(): Typography {
+@Composable
+internal actual fun AppTheme(content: @Composable (() -> Unit)) {
+    MaterialTheme(
+        typography = getAppTypography(), content = content
+    )
+}
+
+
+@Composable
+private fun getAppTypography(): Typography {
     val notoFontFamily = FontFamily(Font(Res.font.noto_sans_jp_regular))
     return Typography().run {
         copy(
