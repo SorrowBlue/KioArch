@@ -4,8 +4,8 @@ kotlin = "2.4.0"
 agp = "9.2.1"
 maven-publish = "0.36.0"
 dokka = "2.2.0"
-detekt = "2.0.0-alpha.3"
-detekt-compose = "0.6.0"
+detekt = "2.0.0-alpha.5"
+detekt-compose = "0.6.2"
 
 # Libraries
 java = "21"
