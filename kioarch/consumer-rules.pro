@@ -3,8 +3,8 @@
     native <methods>;
 }
 
-# Keep JniEntryInfo class and its constructor since it is instantiated from JNI C++ code
--keep class com.sorrowblue.kioarch.JniEntryInfo {
+# Keep JniEntries class and its constructor since it is instantiated from JNI C++ code
+-keep class com.sorrowblue.kioarch.JniEntries {
     <init>(...);
     *;
 }

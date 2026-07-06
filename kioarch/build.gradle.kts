@@ -23,6 +23,13 @@ kotlin {
     android {
         namespace = "com.sorrowblue.kioarch"
 
+        @Suppress("UnstableApiUsage")
+        optimization {
+            consumerKeepRules.apply {
+                publish = true
+                file("consumer-rules.pro")
+            }
+        }
         withHostTest {}
         withDeviceTest {
             instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
