@@ -70,9 +70,28 @@ jobs:
 
   allchecks:
     name: All Checks Passed
-    needs: build
-    if: needs.check-commit.outputs.should-run == 'true'
+    needs: [check-commit, lint, test, build]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Confirm all checks passed
-        run: echo "All checks passed!"
+        run: |
+          if [ "${{ needs.check-commit.result }}" != "success" ]; then
+            echo "Error: check-commit job did not succeed (result: ${{ needs.check-commit.result }})."
+            exit 1
+          fi
+
+          if [ "${{ needs.check-commit.outputs.should-run }}" = "true" ]; then
+            if [ "${{ needs.lint.result }}" != "success" ] || \
+               [ "${{ needs.test.result }}" != "success" ] || \
+               [ "${{ needs.build.result }}" != "success" ]; then
+              echo "Error: One or more required checks failed or were skipped when they should have run."
+              echo "lint: ${{ needs.lint.result }}"
+              echo "test: ${{ needs.test.result }}"
+              echo "build: ${{ needs.build.result }}"
+              exit 1
+            fi
+          else
+            echo "Build was skipped as check-commit.outputs.should-run is not true."
+          fi
+          echo "All checks passed!"
