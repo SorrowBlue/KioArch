@@ -77,7 +77,7 @@ jobs:
           path: kioarch/build/generated/natives/
           merge-multiple: true
       - name: 🚀 Run publish
-        run: ./gradlew :kioarch:android:publishAndReleaseToMavenCentral :kioarch:publishAndReleaseToMavenCentral --no-configuration-cache
+        run: ./gradlew :kioarch:android:publishAndReleaseToMavenCentral :kioarch:publishAndReleaseToMavenCentral --no-configuration-cache -x compileJvmNatives
         env:
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALPASSWORD }}
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALUSERNAME }}
@@ -114,14 +114,6 @@ jobs:
           pattern: natives-**
           path: kioarch/build/generated/natives/
           merge-multiple: true
-      - name: Run publishToMavenLocal
-        run: ./gradlew :kioarch:publishJvmPublicationToMavenLocal -x compileJvmNatives
-      - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: jvm-allplatform
-          path: ~/.m2/repository/
-          retention-days: 1
       - name: 🚀 Run publish
         run: ./gradlew :kioarch:android:publishToMavenCentral :kioarch:publishToMavenCentral --no-configuration-cache -x compileJvmNatives
         env:
