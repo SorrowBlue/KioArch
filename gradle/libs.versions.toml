@@ -5,7 +5,7 @@ agp = "9.3.0"
 maven-publish = "0.37.0"
 dokka = "2.2.0"
 detekt = "2.0.0-alpha.5"
-detekt-compose = "0.6.2"
+detekt-compose = "0.6.3"
 
 # Libraries
 java = "21"
