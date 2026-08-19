@@ -63,6 +63,14 @@ public actual object KioArch {
     internal fun loadLibrary() {
         if (loaded) return
         try {
+            System.loadLibrary("kioarch")
+            loaded = true
+            return
+        } catch (_: UnsatisfiedLinkError) {
+            // Do nothing
+        }
+
+        try {
             val os = System.getProperty("os.name").lowercase()
             System.getProperty("os.arch").lowercase()
 
