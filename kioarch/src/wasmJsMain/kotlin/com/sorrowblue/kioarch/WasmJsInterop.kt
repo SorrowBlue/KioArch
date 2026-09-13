@@ -351,7 +351,20 @@ private external fun isNodeJsWasmInternal(): Boolean
 internal fun isNodeJsWasm(): Boolean = isNodeJsWasmInternal()
 
 @JsFun(
-    "() => { if (!globalThis.kioarchFs) { globalThis.kioarchFs = typeof require !== 'undefined' ? eval('require')('fs') : null; } }"
+    """((fsModule) => {
+        if (fsModule) {
+            globalThis.kioarchFs = fsModule.default || fsModule;
+        }
+        return () => {
+            if (!globalThis.kioarchFs && typeof process !== 'undefined' && typeof process.getBuiltinModule === 'function') {
+                globalThis.kioarchFs = process.getBuiltinModule('node:fs') || process.getBuiltinModule('fs');
+            }
+        };
+    })(
+        ((typeof process !== 'undefined') && (process.release && process.release.name === 'node'))
+            ? await import(/* webpackIgnore: true */ 'node:fs')
+            : null
+    )"""
 )
 private external fun initNodeFsInternal()
 

@@ -183,17 +183,22 @@ class ArchiveReaderWasmTest {
 
 @JsFun(
     """() => {
+        var isNode = typeof process !== 'undefined' && process.versions != null && process.versions.node != null;
         var locateFile = function(path) {
-            if (typeof require !== 'undefined') {
+            if (isNode) {
                 return './kotlin/natives/' + path;
             } else {
                 return '/base/kotlin/natives/' + path;
             }
         };
         var config = { locateFile: locateFile };
-        if (typeof require !== 'undefined') {
-            var createKioArchModule = eval('require')('./natives/kioarch.js');
-            return createKioArchModule(config);
+        if (isNode) {
+            return import(/* webpackIgnore: true */ 'node:module').then(function(moduleMod) {
+                var createRequire = moduleMod.createRequire || (moduleMod.default && moduleMod.default.createRequire);
+                var customRequire = createRequire(import.meta.url);
+                var createKioArchModule = customRequire('./natives/kioarch.js');
+                return createKioArchModule(config);
+            });
         } else {
             if (typeof globalThis.createKioArchModule !== 'function') {
                 return Promise.reject("globalThis.createKioArchModule is not defined");
