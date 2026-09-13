@@ -14,19 +14,14 @@ internal external fun isNodeJsWasm(): Boolean
     """(envVarName, env) => {
         var isNode = typeof process !== 'undefined' && process.versions != null && process.versions.node != null;
         if (isNode) {
-            return new Promise(function(resolve, reject) {
-                try {
-                    var path = env[envVarName];
-                    if (!path) {
-                        reject(new Error("Environment variable " + envVarName + " not set"));
-                        return;
-                    }
-                    var fs = eval('require')('node:fs');
-                    var buffer = fs.readFileSync(path);
-                    resolve(new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.length));
-                } catch (e) {
-                    reject(e);
-                }
+            var path = env[envVarName];
+            if (!path) {
+                return Promise.reject(new Error("Environment variable " + envVarName + " not set"));
+            }
+            return import(/* webpackIgnore: true */ 'node:fs').then(function(fsModule) {
+                var fs = fsModule.default || fsModule;
+                var buffer = fs.readFileSync(path);
+                return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.length);
             });
         } else {
             var fileNames = {
