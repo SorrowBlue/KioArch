@@ -87,6 +87,27 @@ When working with Kotlin/WasmJS and C++ WebAssembly, strict adherence to the fol
 - **Problem:** Browser security blocks `Path` file-system access, but in a Node.js runtime (server/CLI/tests), synchronous I/O via the `fs` module is possible.
 - **Solution:** Dynamically detect the Node.js runtime, dynamically `require('fs')`, and apply a `NodeFileSeekableSource` using sync APIs like `openSync`, `readSync`, and `fstatSync`.
 
+### ⑮ Kotlin 2.4.20+ Wasm/JS Node.js Top-Level `require` Restriction & Dynamic Import / `createRequire`
+- **Problem:** Starting from Kotlin 2.4.20, the Kotlin/Wasm compiler injects a dummy `require` into `import-object.mjs` that throws `JsException: Do not use top-level require...` (KT-86192) when invoked. Using `eval('require')` or `typeof require !== 'undefined'` in `@JsFun` bridges will call this stub or branch incorrectly, causing runtime test/execution failures.
+- **Solution:**
+  - In asynchronous code (like `readTestFile` or module loading), use ES dynamic import: `import(/* webpackIgnore: true */ 'node:fs')`.
+  - For loading CommonJS modules (like Emscripten-generated `kioarch.js`), dynamically import `node:module` and instantiate `createRequire(import.meta.url)`.
+  - For synchronous access (like `initNodeFs`), use a top-level IIFE with conditional `await import(/* webpackIgnore: true */ 'node:fs')` and a fallback to `process.getBuiltinModule?.('node:fs')`:
+    ```javascript
+    ((fsModule) => {
+        if (fsModule) globalThis.kioarchFs = fsModule.default || fsModule;
+        return () => {
+            if (!globalThis.kioarchFs && typeof process !== 'undefined' && typeof process.getBuiltinModule === 'function') {
+                globalThis.kioarchFs = process.getBuiltinModule('node:fs');
+            }
+        };
+    })(
+        ((typeof process !== 'undefined') && (process.release && process.release.name === 'node'))
+            ? await import(/* webpackIgnore: true */ 'node:fs')
+            : null
+    )
+    ```
+
 ---
 
 ## 3. Data Flow
