@@ -65,7 +65,7 @@ kotlin {
         }
         val libDir = project.file("src/cpp/build_ios/$architecture")
         target.compilations.getByName("main") {
-            val kioarch by cinterops.creating {
+            cinterops.create("kioarch") {
                 definitionFile = project.file("src/nativeInterop/cinterop/kioarch.def")
                 includeDirs(
                     project.file("src/cpp")
@@ -92,7 +92,7 @@ kotlin {
                 implementation(kotlin("test"))
             }
         }
-        val androidJvmMain by creating {
+        val androidJvmMain = create("androidJvmMain") {
             dependsOn(commonMain.get())
         }
         jvmMain {
@@ -118,19 +118,17 @@ kotlin {
         wasmJsMain {
             resources.srcDir(layout.buildDirectory.dir("generated/wasm"))
         }
-        val androidHostTest by getting {
-        }
-        val androidDeviceTest by getting {
+        getByName("androidDeviceTest") {
             dependencies {
                 implementation(kotlin("test"))
                 implementation(libs.androidx.test.runner)
                 implementation(libs.androidx.test.ext.junit)
             }
         }
-        val jsTest by getting {
+        getByName("jsTest") {
             resources.srcDir(layout.buildDirectory.dir("tmp/large_tests"))
         }
-        val wasmJsTest by getting {
+        getByName("wasmJsTest") {
             resources.srcDir(layout.buildDirectory.dir("tmp/large_tests"))
         }
     }
