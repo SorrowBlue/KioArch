@@ -22,6 +22,7 @@ kotlin {
     js {
         nodejs()
         browser {}
+        binaries.executable()
         compilerOptions {
             freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
         }
@@ -30,6 +31,7 @@ kotlin {
     wasmJs {
         nodejs()
         browser {}
+        binaries.executable()
         compilerOptions {
             freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
         }
