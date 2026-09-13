@@ -5,7 +5,7 @@ plugins {
     id("kioarch.detekt")
 }
 
-val copyWasmNativesToBuildResources by tasks.registering(Copy::class) {
+val copyWasmNativesToBuildResources = tasks.register<Copy>("copyWasmNativesToBuildResources") {
     dependsOn(":kioarch:compileWasmNatives")
     from(project(":kioarch").layout.buildDirectory.dir("generated/wasm/natives"))
     into(layout.buildDirectory.dir("generated/wasm/natives"))
