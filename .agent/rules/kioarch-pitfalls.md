@@ -125,3 +125,17 @@ JNI境界でのゼロコピー（`DirectSeekableSource` や `NewDirectByteBuffer
 - **Solution**:
   - `NewDirectByteBuffer` で作成したローカル参照は、使用後に必ず `(*env)->DeleteLocalRef(env, directBuffer)` を用いて即座に明示的に解放すること。
   - Kotlinコールバックの呼び出し（`CallVoidMethod` など）の直後には、必ず `ExceptionCheck(env)` でJVM例外を検知すること。例外が発生している場合は、処理を即時離脱（abort）し、確保していたC++側のメモリ資源（展開バッファやデコーダ等）を適切にクリーンアップした上で復帰すること。
+
+---
+
+## 5. Kotlin/Native iOS CInterop Pitfalls
+
+### ⑮ Kotlin/Native CInteropライブラリ配布時の未定義シンボルエラー（Undefined symbol）と静的ライブラリ同梱
+- **Problem**:
+  iOSなどのKotlin/Nativeターゲット向けにC/C++静的ライブラリ（`libkioarch.a`）をラップしてMaven配布（.klib公開）する場合、`target.binaries.all { linkerOpts("-L...", "-lkioarch") }` の指定だけでは、配布される `.klib` に静的ライブラリのバイナリが含まれません（`linkerOpts` はプロジェクト自身のバイナリリンクにしか効かない）。
+  そのため、別のKMPプロジェクトがこのライブラリを依存関係に追加してiOSアプリやFrameworkをリンクする際に、リンカーが `kio_open_archive` 等のシンボルを見つけられず `Undefined symbol: _kio_*` で失敗します。
+- **Solution**:
+  - `cinterop` 定義ファイル（`*.def`）に `staticLibraries = libkioarch.a` を記述する。
+  - Gradleの `cinterops` 設定で、ターゲットアーキテクチャ（`Release-iphoneos` や `Release-iphonesimulator`）に応じたパスを `extraOpts("-libraryPath", libDir.absolutePath)` で渡す。
+  - これにより、Kotlin/Nativeが `.klib` 内に静的ライブラリ（`.a`）を自動的に埋め込み（embed）、下流のプロジェクトが特別なリンカー設定なしに自動リンクできるようになります。
+

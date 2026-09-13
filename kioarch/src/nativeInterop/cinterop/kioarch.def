@@ -1,2 +1,3 @@
 headers = kioarch_ios.h
 package = com.sorrowblue.kioarch.internal.cinterop
+staticLibraries = libkioarch.a

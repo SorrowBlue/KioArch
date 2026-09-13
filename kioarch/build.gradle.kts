@@ -58,25 +58,24 @@ kotlin {
     val xcf = XCFramework("KioArch")
     val iosTargets = listOf(iosX64(), iosArm64(), iosSimulatorArm64())
     iosTargets.forEach { target ->
+        val architecture = when (target.name) {
+            "iosX64" -> "Release-iphonesimulator"
+            "iosSimulatorArm64" -> "Release-iphonesimulator"
+            else -> "Release-iphoneos"
+        }
+        val libDir = project.file("src/cpp/build_ios/$architecture")
         target.compilations.getByName("main") {
             val kioarch by cinterops.creating {
                 definitionFile = project.file("src/nativeInterop/cinterop/kioarch.def")
                 includeDirs(
                     project.file("src/cpp")
                 )
+                extraOpts("-libraryPath", libDir.absolutePath)
             }
         }
         target.binaries.framework {
             baseName = "KioArch"
             xcf.add(this)
-        }
-        val architecture = when (target.name) {
-            "iosX64" -> "Release-iphonesimulator"
-            "iosSimulatorArm64" -> "Release-iphonesimulator"
-            else -> "Release-iphoneos"
-        }
-        target.binaries.all {
-            linkerOpts("-L${project.file("src/cpp/build_ios/$architecture").absolutePath}", "-lkioarch")
         }
     }
 
