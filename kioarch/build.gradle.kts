@@ -130,6 +130,12 @@ kotlin {
                 implementation(libs.androidx.test.ext.junit)
             }
         }
+        getByName("jsTest") {
+            resources.srcDir(tasks.named("generateTestFiles"))
+        }
+        getByName("wasmJsTest") {
+            resources.srcDir(tasks.named("generateTestFiles"))
+        }
     }
 
     compilerOptions {

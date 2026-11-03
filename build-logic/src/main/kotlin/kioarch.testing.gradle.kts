@@ -18,24 +18,6 @@ val generateTestFiles = tasks.register("generateTestFiles", GenerateTestFilesTas
     outputDir.set(layout.buildDirectory.dir("tmp/large_tests"))
 }
 
-val copyJsTestAssets = tasks.register("copyJsTestAssets", Copy::class.java) {
-    from(generateTestFiles)
-    into(
-        project.rootProject.layout.buildDirectory.dir(
-            "js/packages/KioArch-root-kioarch-test/kotlin"
-        )
-    )
-}
-
-val copyWasmTestAssets = tasks.register("copyWasmTestAssets", Copy::class.java) {
-    from(generateTestFiles)
-    into(
-        project.rootProject.layout.buildDirectory.dir(
-            "wasm/packages/KioArch-root-kioarch-test/kotlin"
-        )
-    )
-}
-
 tasks.withType(KotlinNativeTest::class.java).configureEach {
     dependsOn(generateTestFiles)
     val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
@@ -83,13 +65,4 @@ tasks.withType(Test::class.java).configureEach {
     systemProperty("LARGE_ZIP_PATH", "$testDir/large.zip")
     systemProperty("LARGE_7Z_PATH", "$testDir/large.7z")
     systemProperty("LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
-}
-
-tasks.configureEach {
-    if (name == "jsBrowserTest") {
-        dependsOn(copyJsTestAssets)
-    }
-    if (name == "wasmJsBrowserTest") {
-        dependsOn(copyWasmTestAssets)
-    }
 }
