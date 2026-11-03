@@ -4,7 +4,7 @@
 version: 'v0.0.3'
 workflows:
     '.github/workflows/autolabeler.yml':
-        - 'release-drafter/release-drafter@v7.7.0'
+        - 'release-drafter/release-drafter@v7.10.0'
     '.github/workflows/build.yml':
         - 'actions/checkout@v7.0.1'
         - 'jwlawson/actions-setup-cmake@v2.2.0'
@@ -28,7 +28,7 @@ workflows:
         - 'jwlawson/actions-setup-cmake@v2.2.0'
         - 'sorrowblue/github-actions@main'
     '.github/workflows/release-drafter.yml':
-        - 'release-drafter/release-drafter@v7.7.0'
+        - 'release-drafter/release-drafter@v7.10.0'
     '.github/workflows/test.yml':
         - 'actions/cache@v6.1.0'
         - 'actions/checkout@v7.0.1'
@@ -99,9 +99,9 @@ dependencies:
         commit: 'sha1-0d6a7d60b009d01c9e7523be22153ff8f19460d3'
         owner_id: 1849778
         repo_id: 233434320
-    'release-drafter/release-drafter@v7.7.0':
-        ref: 'v7.7.0'
-        commit: 'sha1-34d80673e067bdc0c24568d3af899c216adcfaa9'
+    'release-drafter/release-drafter@v7.10.0':
+        ref: 'v7.10.0'
+        commit: 'sha1-978bb0b30c5ee8cdd332ced253758157150d43f0'
         owner_id: 58292376
         repo_id: 139022359
     'sorrowblue/github-actions@main':
