@@ -11,16 +11,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
+        uses: jwlawson/actions-setup-cmake@v2.2.0
         with:
           github-api-token: ${{ secrets.GITHUB_TOKEN }}
           cmake-version: '4.1.2'
       - name: Setup Emscripten (emsdk)
-        uses: mymindstorm/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+        uses: emscripten-core/setup-emsdk@v16
         with:
           version: '5.0.7'
       - name: Setup Java and Gradle
@@ -29,7 +29,7 @@ jobs:
         run: ./gradlew jvmTest testAndroidHostTest jsNodeTest wasmJsTest wasmJsNodeTest --continue
       - name: Upload Test Report
         if: cancelled() != true
-        uses: dorny/test-reporter@v3
+        uses: dorny/test-reporter@v3.2.0
         with:
           name: 'Unit Test'
           path: '**/build/test-results/*/TEST-*.xml'
@@ -42,11 +42,11 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@0d6a7d60b009d01c9e7523be22153ff8f19460d3 # v2.2.0
+        uses: jwlawson/actions-setup-cmake@v2.2.0
         with:
           github-api-token: ${{ secrets.GITHUB_TOKEN }}
           cmake-version: '4.1.2'
@@ -56,7 +56,7 @@ jobs:
         run: ./gradlew :kioarch:iosSimulatorArm64Test --continue
       - name: Upload Test Report
         if: cancelled() != true
-        uses: dorny/test-reporter@v3
+        uses: dorny/test-reporter@v3.2.0
         with:
           name: 'iOS Test'
           path: '**/build/test-results/*/TEST-*.xml'
@@ -69,7 +69,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
       - name: Setup Java and Gradle
@@ -80,7 +80,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: AVD cache
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         id: avd-cache
         with:
           path: |
@@ -89,7 +89,7 @@ jobs:
           key: avd-35
       - name: create AVD and generate snapshot for caching
         if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 35
           target: default
@@ -100,7 +100,7 @@ jobs:
           disable-animations: false
           script: echo "Generated AVD snapshot for caching."
       - name: Run Instrumentation tests
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 35
           target: default
@@ -113,7 +113,7 @@ jobs:
           cmake: '4.1.2'
       - name: Upload Test Report
         if: cancelled() != true
-        uses: dorny/test-reporter@v3
+        uses: dorny/test-reporter@v3.2.0
         with:
           name: 'Instrumentation Test'
           path: '**/build/outputs/*Test-results/**/TEST-*.xml'
