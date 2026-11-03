@@ -5,10 +5,13 @@ import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 
 /**
@@ -20,6 +23,7 @@ import org.gradle.api.tasks.TaskAction
  *    (and discovers MSVC's vcvarsall.bat on Windows) at runtime, allowing zero-config execution from IDEs.
  * 2. If [emsdkDir] is not provided, it falls back to the system environment variables.
  */
+@CacheableTask
 abstract class CompileWasmNativesTask @Inject constructor(
     private val fileSystemOperations: FileSystemOperations
 ) : DefaultTask() {
@@ -28,6 +32,7 @@ abstract class CompileWasmNativesTask @Inject constructor(
      * The input directory containing the C/C++ source code and CMakeLists.txt.
      */
     @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val cppSourceDir: DirectoryProperty
 
     /**
@@ -47,18 +52,24 @@ abstract class CompileWasmNativesTask @Inject constructor(
     @TaskAction
     fun compile() {
         val sourceDir = cppSourceDir.get().asFile
-        val buildDir = sourceDir.resolve("build_wasm")
+        val buildDir = temporaryDir.resolve("build_wasm")
         buildDir.mkdirs()
 
         val isWindows = System.getProperty("os.name").lowercase().contains("windows")
         val emsdkPath = emsdkDir.orNull
 
-        configureCMake(sourceDir, isWindows, emsdkPath)
-        buildCMake(sourceDir, isWindows, emsdkPath)
+        configureCMake(sourceDir, buildDir, isWindows, emsdkPath)
+        buildCMake(sourceDir, buildDir, isWindows, emsdkPath)
         copyArtifacts(buildDir)
     }
 
-    private fun configureCMake(sourceDir: File, isWindows: Boolean, emsdkPath: String?) {
+    private fun configureCMake(
+        sourceDir: File,
+        buildDir: File,
+        isWindows: Boolean,
+        emsdkPath: String?
+    ) {
+        val buildPath = buildDir.absolutePath
         val configureArgs = if (isWindows) {
             val vcvarsall = findVcvarsallBat()
             val vcPrefix = if (vcvarsall != null) {
@@ -72,15 +83,15 @@ abstract class CompileWasmNativesTask @Inject constructor(
                 ""
             }
             val cmd = "${vcPrefix}$envPrefix" +
-                "emcmake cmake -S . -B build_wasm -G \"NMake Makefiles\""
+                "emcmake cmake -S . -B \"$buildPath\" -G \"NMake Makefiles\""
             listOf("cmd", "/c", cmd)
         } else {
             if (emsdkPath != null) {
                 val shCmd = ". \"$emsdkPath/emsdk_env.sh\" && " +
-                    "emcmake cmake -S . -B build_wasm"
+                    "emcmake cmake -S . -B \"$buildPath\""
                 listOf("sh", "-c", shCmd)
             } else {
-                listOf("emcmake", "cmake", "-S", ".", "-B", "build_wasm")
+                listOf("emcmake", "cmake", "-S", ".", "-B", buildPath)
             }
         }
 
@@ -98,7 +109,13 @@ abstract class CompileWasmNativesTask @Inject constructor(
         }
     }
 
-    private fun buildCMake(sourceDir: File, isWindows: Boolean, emsdkPath: String?) {
+    private fun buildCMake(
+        sourceDir: File,
+        buildDir: File,
+        isWindows: Boolean,
+        emsdkPath: String?
+    ) {
+        val buildPath = buildDir.absolutePath
         val buildArgs = if (isWindows) {
             val vcvarsall = findVcvarsallBat()
             val vcPrefix = if (vcvarsall != null) {
@@ -112,15 +129,15 @@ abstract class CompileWasmNativesTask @Inject constructor(
                 ""
             }
             val cmd = "${vcPrefix}$envPrefix" +
-                "cmake --build build_wasm --config Release"
+                "cmake --build \"$buildPath\" --config Release"
             listOf("cmd", "/c", cmd)
         } else {
             if (emsdkPath != null) {
                 val shCmd = ". \"$emsdkPath/emsdk_env.sh\" && " +
-                    "cmake --build build_wasm --config Release"
+                    "cmake --build \"$buildPath\" --config Release"
                 listOf("sh", "-c", shCmd)
             } else {
-                listOf("cmake", "--build", "build_wasm", "--config", "Release")
+                listOf("cmake", "--build", buildPath, "--config", "Release")
             }
         }
         val process = ProcessBuilder(buildArgs)

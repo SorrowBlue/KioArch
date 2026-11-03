@@ -7,7 +7,10 @@ val generateTestFiles = tasks.register("generateTestFiles", JavaExec::class.java
     description = "Generates test archives for testing"
     dependsOn("jvmTestClasses")
     mainClass.set("com.sorrowblue.kioarch.TestFileGenerator")
-    args(layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath)
+    val outputDir = layout.buildDirectory.dir("tmp/large_tests")
+    outputs.dir(outputDir)
+    outputs.cacheIf { true }
+    args(outputDir.get().asFile.absolutePath)
 }
 
 plugins.withId("org.jetbrains.kotlin.multiplatform") {

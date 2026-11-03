@@ -35,6 +35,8 @@ jobs:
         uses: emscripten-core/setup-emsdk@v16
         with:
           version: '5.0.7'
+          actions-cache-folder: 'emsdk-cache'
+          cache-key: 'emsdk-5.0.7-${{ runner.os }}-${{ runner.arch }}'
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: 🔍️Run analyze ${{ matrix.name }}

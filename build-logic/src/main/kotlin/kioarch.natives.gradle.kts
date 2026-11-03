@@ -37,6 +37,10 @@ val compileIosNatives = tasks.register("compileIosNatives", CompileIosNativesTas
         System.getProperty("os.name").lowercase().contains("mac")
     }
     cppSourceDir.set(config.ios.cppSourceDir.orElse(config.cppSourceDir))
+    outputDir.set(config.ios.outputDir)
+    simulatorOnly.set(
+        providers.gradleProperty("ios.simulatorOnly").map { it.toBoolean() }.orElse(false)
+    )
 }
 
 // Set up task dependencies

@@ -63,7 +63,7 @@ kotlin {
             "iosSimulatorArm64" -> "Release-iphonesimulator"
             else -> "Release-iphoneos"
         }
-        val libDir = project.file("src/cpp/build_ios/$architecture")
+        val libDir = layout.buildDirectory.dir("generated/ios/natives/$architecture").get().asFile
         target.compilations.getByName("main") {
             cinterops.create("kioarch") {
                 definitionFile = project.file("src/nativeInterop/cinterop/kioarch.def")
@@ -145,6 +145,9 @@ compileNative {
     }
     wasm {
         outputDir.set(layout.buildDirectory.dir("generated/wasm/natives/"))
+    }
+    ios {
+        outputDir.set(layout.buildDirectory.dir("generated/ios/natives/"))
     }
 }
 publishing {

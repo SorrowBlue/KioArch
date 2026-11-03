@@ -5,16 +5,21 @@ import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 
+@CacheableTask
 abstract class CompileJvmNativesTask @Inject constructor(
     private val fileSystemOperations: FileSystemOperations
 ) : DefaultTask() {
 
     @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val cppSourceDir: DirectoryProperty
 
     @get:OutputDirectory
@@ -26,16 +31,16 @@ abstract class CompileJvmNativesTask @Inject constructor(
     @TaskAction
     fun compile() {
         val sourceDir = cppSourceDir.get().asFile
-        val buildDir = sourceDir.resolve("build")
+        val buildDir = temporaryDir.resolve("build")
         buildDir.mkdirs()
 
         // 1. Pre-flight check (Check if required tools are available)
         checkToolsAvailability()
 
         // 2. Run CMake Configure & Build
-        configureCMake(sourceDir)
-        buildCMake(sourceDir)
-        copyBuiltLibrary(sourceDir)
+        configureCMake(sourceDir, buildDir)
+        buildCMake(sourceDir, buildDir)
+        copyBuiltLibrary(buildDir)
     }
 
     private fun checkToolsAvailability() {
@@ -102,20 +107,21 @@ abstract class CompileJvmNativesTask @Inject constructor(
         }
     }.getOrNull()
 
-    private fun configureCMake(sourceDir: File) {
+    private fun configureCMake(sourceDir: File, buildDir: File) {
+        val buildPath = buildDir.absolutePath
         val configureArgs = if (targetOs.get() == TargetOs.Windows) {
             val vcvarsall = findVcvarsallBat()
             if (vcvarsall != null) {
                 listOf(
                     "cmd",
                     "/c",
-                    "call \"${vcvarsall.absolutePath}\" amd64 && cmake -S . -B build"
+                    "call \"${vcvarsall.absolutePath}\" amd64 && cmake -S . -B \"$buildPath\""
                 )
             } else {
-                listOf("cmake", "-S", ".", "-B", "build")
+                listOf("cmake", "-S", ".", "-B", buildPath)
             }
         } else {
-            listOf("cmake", "-S", ".", "-B", "build")
+            listOf("cmake", "-S", ".", "-B", buildPath)
         }
 
         val process = try {
@@ -143,7 +149,8 @@ abstract class CompileJvmNativesTask @Inject constructor(
         }
     }
 
-    private fun buildCMake(sourceDir: File) {
+    private fun buildCMake(sourceDir: File, buildDir: File) {
+        val buildPath = buildDir.absolutePath
         val buildArgs = if (targetOs.get() == TargetOs.Windows) {
             val vcvarsall = findVcvarsallBat()
             if (vcvarsall != null) {
@@ -151,13 +158,13 @@ abstract class CompileJvmNativesTask @Inject constructor(
                 listOf(
                     "cmd",
                     "/c",
-                    "call \"$path\" amd64 && cmake --build build --config Release"
+                    "call \"$path\" amd64 && cmake --build \"$buildPath\" --config Release"
                 )
             } else {
-                listOf("cmake", "--build", "build", "--config", "Release")
+                listOf("cmake", "--build", buildPath, "--config", "Release")
             }
         } else {
-            listOf("cmake", "--build", "build", "--config", "Release")
+            listOf("cmake", "--build", buildPath, "--config", "Release")
         }
 
         val process = try {
@@ -181,16 +188,16 @@ abstract class CompileJvmNativesTask @Inject constructor(
         }
     }
 
-    private fun copyBuiltLibrary(sourceDir: File) {
+    private fun copyBuiltLibrary(buildDir: File) {
         val builtLib = when (targetOs.get()) {
             TargetOs.Windows -> {
-                val releaseLib = sourceDir.resolve("build/Release/kioarch.dll")
-                if (releaseLib.exists()) releaseLib else sourceDir.resolve("build/kioarch.dll")
+                val releaseLib = buildDir.resolve("Release/kioarch.dll")
+                if (releaseLib.exists()) releaseLib else buildDir.resolve("kioarch.dll")
             }
 
-            TargetOs.MacOS -> sourceDir.resolve("build/libkioarch.dylib")
+            TargetOs.MacOS -> buildDir.resolve("libkioarch.dylib")
 
-            TargetOs.Linux -> sourceDir.resolve("build/libkioarch.so")
+            TargetOs.Linux -> buildDir.resolve("libkioarch.so")
         }
         if (!builtLib.exists()) {
             throw GradleException("Built library not found at: ${builtLib.absolutePath}")

@@ -1,23 +1,48 @@
+import javax.inject.Inject
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 
-abstract class CompileIosNativesTask : DefaultTask() {
+@CacheableTask
+abstract class CompileIosNativesTask @Inject constructor(
+    private val fileSystemOperations: FileSystemOperations
+) : DefaultTask() {
 
     @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val cppSourceDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Input
+    abstract val simulatorOnly: Property<Boolean>
 
     @TaskAction
     fun compile() {
         val sourceDir = cppSourceDir.get().asFile
-        val buildDir = sourceDir.resolve("build_ios")
+        val buildDir = temporaryDir.resolve("build_ios")
         buildDir.mkdirs()
 
-        // 1. CMake Configure (iOS)
-        val process1 = ProcessBuilder(
-            "cmake", "-S", ".", "-B", "build_ios",
+        configureIosCMake(sourceDir, buildDir)
+        if (!simulatorOnly.get()) {
+            buildIosSdk(sourceDir, buildDir, "iphoneos", "Release-iphoneos")
+        }
+        buildIosSdk(sourceDir, buildDir, "iphonesimulator", "Release-iphonesimulator")
+    }
+
+    private fun configureIosCMake(sourceDir: java.io.File, buildDir: java.io.File) {
+        val process = ProcessBuilder(
+            "cmake", "-S", ".", "-B", buildDir.absolutePath,
             "-G", "Xcode",
             "-DCMAKE_SYSTEM_NAME=iOS",
             "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO",
@@ -27,50 +52,38 @@ abstract class CompileIosNativesTask : DefaultTask() {
             .directory(sourceDir)
             .redirectErrorStream(true)
             .start()
-        val output1 = process1.inputStream.bufferedReader().readText()
-        val exitCode1 = process1.waitFor()
-        if (exitCode1 != 0) {
-            throw GradleException("CMake configure for iOS failed. Output:\n$output1")
+        val output = process.inputStream.bufferedReader().readText()
+        if (process.waitFor() != 0) {
+            throw GradleException("CMake configure for iOS failed. Output:\n$output")
         }
+    }
 
-        // 2a. CMake Build (iOS Device)
-        val process2a = ProcessBuilder(
+    private fun buildIosSdk(
+        sourceDir: java.io.File,
+        buildDir: java.io.File,
+        sdk: String,
+        releaseDirName: String
+    ) {
+        val process = ProcessBuilder(
             "cmake",
             "--build",
-            "build_ios",
+            buildDir.absolutePath,
             "--config",
             "Release",
             "--",
             "-sdk",
-            "iphoneos"
+            sdk
         )
             .directory(sourceDir)
             .redirectErrorStream(true)
             .start()
-        val output2a = process2a.inputStream.bufferedReader().readText()
-        val exitCode2a = process2a.waitFor()
-        if (exitCode2a != 0) {
-            throw GradleException("CMake build for iOS Device failed. Output:\n$output2a")
+        val output = process.inputStream.bufferedReader().readText()
+        if (process.waitFor() != 0) {
+            throw GradleException("CMake build for iOS ($sdk) failed. Output:\n$output")
         }
-
-        // 2b. CMake Build (iOS Simulator)
-        val process2b = ProcessBuilder(
-            "cmake",
-            "--build",
-            "build_ios",
-            "--config",
-            "Release",
-            "--",
-            "-sdk",
-            "iphonesimulator"
-        )
-            .directory(sourceDir)
-            .redirectErrorStream(true)
-            .start()
-        val output2b = process2b.inputStream.bufferedReader().readText()
-        val exitCode2b = process2b.waitFor()
-        if (exitCode2b != 0) {
-            throw GradleException("CMake build for iOS Simulator failed. Output:\n$output2b")
+        fileSystemOperations.copy {
+            from(buildDir.resolve("$releaseDirName/libkioarch.a"))
+            into(outputDir.get().dir(releaseDirName))
         }
     }
 }

@@ -35,4 +35,5 @@ open class WasmNativesConfig @Inject constructor(objects: ObjectFactory) {
 
 open class IosNativesConfig @Inject constructor(objects: ObjectFactory) {
     val cppSourceDir: DirectoryProperty = objects.directoryProperty()
+    val outputDir: DirectoryProperty = objects.directoryProperty()
 }
