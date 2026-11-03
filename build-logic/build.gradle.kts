@@ -16,6 +16,8 @@ kotlin {
 dependencies {
     compileOnly(libs.bundles.gradlePlugin)
     compileOnly(files(currentLibs.javaClass.superclass.protectionDomain.codeSource.location))
+    implementation(libs.commons.compress)
+    implementation(libs.xz)
     testImplementation(kotlin("test"))
     detektPlugins(libs.bundles.detekt)
 }

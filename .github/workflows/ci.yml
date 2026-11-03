@@ -22,7 +22,12 @@ jobs:
   check-commit:
     runs-on: ubuntu-latest
     outputs:
-      should-run: ${{ steps.check.outputs.should-run }}
+      run-lint: ${{ steps.check.outputs.run-lint }}
+      run-unit: ${{ steps.check.outputs.run-unit }}
+      run-ios: ${{ steps.check.outputs.run-ios }}
+      run-instrumentation: ${{ steps.check.outputs.run-instrumentation }}
+      run-build: ${{ steps.check.outputs.run-build }}
+      run-cpp: ${{ steps.check.outputs.run-cpp }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -31,42 +36,108 @@ jobs:
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v47.0.6
-      - name: Check if should run
+        with:
+          files_yaml: |
+            code:
+              - '**'
+              - '!**.md'
+              - '!.agent/**'
+              - '!LICENSE*'
+            ios:
+              - 'kioarch/src/commonMain/**'
+              - 'kioarch/src/commonTest/**'
+              - 'kioarch/src/iosMain/**'
+              - 'kioarch/src/iosTest/**'
+              - 'kioarch/src/cpp/**'
+              - 'kioarch/src/nativeInterop/**'
+              - 'kioarch/build.gradle.kts'
+              - 'build-logic/**'
+              - 'gradle/**'
+            cpp:
+              - 'kioarch/src/cpp/**'
+              - 'build-logic/**'
+              - 'gradle/**'
+      - name: Check which jobs should run
         id: check
         run: |
-          IS_AUTO_COMMIT=false
-          if [ "${{ github.event_name }}" = "push" ] && \
-             [ "${{ github.event.head_commit.committer.name }}" = "GitHub" ]; then
-            IS_AUTO_COMMIT=true
+          CODE_CHANGED="${{ steps.changed-files.outputs.code_any_changed }}"
+          IOS_CHANGED="${{ steps.changed-files.outputs.ios_any_changed }}"
+          CPP_CHANGED="${{ steps.changed-files.outputs.cpp_any_changed }}"
+
+          RUN_LINT=false
+          RUN_UNIT=false
+          RUN_IOS=false
+          RUN_INSTRUMENTATION=false
+          RUN_BUILD=false
+          RUN_CPP=false
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RUN_LINT=true
+            RUN_UNIT=true
+            RUN_IOS=true
+            RUN_INSTRUMENTATION=true
+            RUN_BUILD=true
+            RUN_CPP=true
+          elif [ "$CODE_CHANGED" = "true" ]; then
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              RUN_LINT=true
+              RUN_UNIT=true
+              RUN_IOS="$IOS_CHANGED"
+              RUN_INSTRUMENTATION=false
+              RUN_BUILD=true
+              RUN_CPP="$CPP_CHANGED"
+            elif [ "${{ github.event_name }}" = "push" ]; then
+              if [ "${{ github.event.head_commit.committer.name }}" = "GitHub" ]; then
+                # PR merge into main: only run Android emulator instrumentation tests
+                RUN_INSTRUMENTATION=true
+              else
+                # Direct push to main
+                RUN_LINT=true
+                RUN_UNIT=true
+                RUN_IOS="$IOS_CHANGED"
+                RUN_INSTRUMENTATION=true
+              fi
+            fi
           fi
 
-          OTHER_FILES_CHANGED="${{ steps.changed-files.outputs.any_changed }}"
+          echo "run-lint=$RUN_LINT" >> $GITHUB_OUTPUT
+          echo "run-unit=$RUN_UNIT" >> $GITHUB_OUTPUT
+          echo "run-ios=$RUN_IOS" >> $GITHUB_OUTPUT
+          echo "run-instrumentation=$RUN_INSTRUMENTATION" >> $GITHUB_OUTPUT
+          echo "run-build=$RUN_BUILD" >> $GITHUB_OUTPUT
+          echo "run-cpp=$RUN_CPP" >> $GITHUB_OUTPUT
 
-          if [ "$IS_AUTO_COMMIT" = "false" ] && [ "$OTHER_FILES_CHANGED" = "true" ]; then
-            echo "should-run=true" >> $GITHUB_OUTPUT
-            echo "Decision: Running workflow"
-          else
-            echo "should-run=false" >> $GITHUB_OUTPUT
-            echo "Decision: Skipping workflow"
-            echo "Reasoning:"
-            echo "  - Is automated push: $IS_AUTO_COMMIT"
-            echo "  - Other files changed: $OTHER_FILES_CHANGED"
-          fi
+          echo "Decisions:"
+          echo "  - run-lint: $RUN_LINT"
+          echo "  - run-unit: $RUN_UNIT"
+          echo "  - run-ios: $RUN_IOS"
+          echo "  - run-instrumentation: $RUN_INSTRUMENTATION"
+          echo "  - run-build: $RUN_BUILD"
+          echo "  - run-cpp: $RUN_CPP"
 
   lint:
     needs: check-commit
-    if: needs.check-commit.outputs.should-run == 'true'
+    if: needs.check-commit.outputs.run-lint == 'true'
     uses: ./.github/workflows/lint.yml
 
   test:
     needs: check-commit
-    if: needs.check-commit.outputs.should-run == 'true'
+    if: >-
+      needs.check-commit.outputs.run-unit == 'true' ||
+      needs.check-commit.outputs.run-ios == 'true' ||
+      needs.check-commit.outputs.run-instrumentation == 'true'
     uses: ./.github/workflows/test.yml
+    with:
+      run-unit: ${{ needs.check-commit.outputs.run-unit == 'true' }}
+      run-ios: ${{ needs.check-commit.outputs.run-ios == 'true' }}
+      run-instrumentation: ${{ needs.check-commit.outputs.run-instrumentation == 'true' }}
 
   build:
-    needs: [ lint, test ]
-    if: needs.check-commit.outputs.should-run == 'true'
+    needs: check-commit
+    if: needs.check-commit.outputs.run-build == 'true'
     uses: ./.github/workflows/build.yml
+    with:
+      run-cpp: ${{ needs.check-commit.outputs.run-cpp == 'true' }}
 
   allchecks:
     name: All Checks Passed
@@ -81,17 +152,24 @@ jobs:
             exit 1
           fi
 
-          if [ "${{ needs.check-commit.outputs.should-run }}" = "true" ]; then
-            if [ "${{ needs.lint.result }}" != "success" ] || \
-               [ "${{ needs.test.result }}" != "success" ] || \
-               [ "${{ needs.build.result }}" != "success" ]; then
-              echo "Error: One or more required checks failed or were skipped when they should have run."
-              echo "lint: ${{ needs.lint.result }}"
-              echo "test: ${{ needs.test.result }}"
-              echo "build: ${{ needs.build.result }}"
-              exit 1
-            fi
-          else
-            echo "Build was skipped as check-commit.outputs.should-run is not true."
+          if [ "${{ needs.check-commit.outputs.run-lint }}" = "true" ] && \
+             [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "Error: lint job did not succeed (result: ${{ needs.lint.result }})."
+            exit 1
           fi
-          echo "All checks passed!"
+
+          if { [ "${{ needs.check-commit.outputs.run-unit }}" = "true" ] || \
+               [ "${{ needs.check-commit.outputs.run-ios }}" = "true" ] || \
+               [ "${{ needs.check-commit.outputs.run-instrumentation }}" = "true" ]; } && \
+             [ "${{ needs.test.result }}" != "success" ]; then
+            echo "Error: test job did not succeed (result: ${{ needs.test.result }})."
+            exit 1
+          fi
+
+          if [ "${{ needs.check-commit.outputs.run-build }}" = "true" ] && \
+             [ "${{ needs.build.result }}" != "success" ]; then
+            echo "Error: build job did not succeed (result: ${{ needs.build.result }})."
+            exit 1
+          fi
+
+          echo "All required checks passed!"
