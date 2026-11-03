@@ -43,7 +43,7 @@ jobs:
       - name: Run compileJvmNatives
         run: ./gradlew :kioarch:compileJvmNatives
       - name: Upload artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: natives-${{ matrix.name }}
           path: kioarch/build/generated/natives/
