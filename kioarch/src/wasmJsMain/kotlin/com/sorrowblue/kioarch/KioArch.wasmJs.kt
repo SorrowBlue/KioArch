@@ -253,6 +253,7 @@ public class NodeFileSeekableSource(private val pathStr: String, private val mod
     private val fd: Int
     private var pos: Long = 0L
     private val totalLength: Long
+    private var isClosed = false
 
     init {
         initNodeFs()
@@ -262,6 +263,7 @@ public class NodeFileSeekableSource(private val pathStr: String, private val mod
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (isClosed) return -1
         val result: Int
         if (pos >= totalLength) {
             result = -1
@@ -290,15 +292,19 @@ public class NodeFileSeekableSource(private val pathStr: String, private val mod
     }
 
     override fun seek(position: Long) {
+        if (isClosed) return
         pos = maxOf(0L, minOf(position, totalLength))
     }
 
-    override fun position(): Long = pos
+    override fun position(): Long = if (isClosed) 0L else pos
 
-    override fun length(): Long = totalLength
+    override fun length(): Long = if (isClosed) 0L else totalLength
 
     override fun close() {
-        nodeCloseSync(fd)
+        if (!isClosed) {
+            isClosed = true
+            nodeCloseSync(fd)
+        }
     }
 }
 
@@ -406,6 +412,7 @@ private class WasmArchiveReader(
 
     override fun close() {
         if (!isClosed) {
+            isClosed = true
             wasmCloseArchive(module, handle)
             wasmFree(module, sourcePtr)
             wasmRemoveFunction(module, readFuncPtr)
@@ -413,8 +420,11 @@ private class WasmArchiveReader(
             wasmRemoveFunction(module, posFuncPtr)
             wasmRemoveFunction(module, lenFuncPtr)
             removeSourceJs(sourceOpaqueId)
-            releaseOpaque(sourceOpaqueId)
-            isClosed = true
+            try {
+                (getOpaque(sourceOpaqueId) as? SeekableSource)?.close()
+            } finally {
+                releaseOpaque(sourceOpaqueId)
+            }
         }
     }
 }

@@ -6,11 +6,13 @@ import java.nio.channels.Channels
 import java.nio.channels.WritableByteChannel
 import kotlinx.io.Sink
 
-internal class SeekableArchiveReader(source: SeekableSource) : ArchiveReader {
+internal class SeekableArchiveReader(private val source: SeekableSource) : ArchiveReader {
 
     private val handle = KioArchJni.openArchive(source)
 
     private val lock = Any()
+
+    private var isClosed = false
 
     init {
         require(handle != 0L) {
@@ -19,6 +21,7 @@ internal class SeekableArchiveReader(source: SeekableSource) : ArchiveReader {
     }
 
     override fun getEntries(): List<ArchiveEntry> = synchronized(lock) {
+        check(!isClosed) { "Reader is closed" }
         val jniEntries = KioArchJni.getEntries(handle)
         val count = jniEntries.index.size
         val list = ArrayList<ArchiveEntry>(count)
@@ -40,6 +43,7 @@ internal class SeekableArchiveReader(source: SeekableSource) : ArchiveReader {
     @Suppress("SwallowedException", "TooGenericExceptionCaught")
     override fun extractEntry(entry: ArchiveEntry, sink: Sink) {
         synchronized(lock) {
+            check(!isClosed) { "Reader is closed" }
             var directSuccess = false
             try {
                 val targetChannel = findWritableChannel(sink)
@@ -125,7 +129,14 @@ internal class SeekableArchiveReader(source: SeekableSource) : ArchiveReader {
 
     override fun close() {
         synchronized(lock) {
-            KioArchJni.closeArchive(handle)
+            if (!isClosed) {
+                isClosed = true
+                try {
+                    KioArchJni.closeArchive(handle)
+                } finally {
+                    source.close()
+                }
+            }
         }
     }
 }

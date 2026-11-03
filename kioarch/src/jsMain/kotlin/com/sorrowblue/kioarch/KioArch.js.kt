@@ -383,6 +383,7 @@ public class NodeFileSeekableSource(private val pathStr: String) : SeekableSourc
     private val fd: Int
     private var pos: Long = 0L
     private val totalLength: Long
+    private var isClosed = false
 
     init {
         fd = fs.openSync(pathStr, "r") as Int
@@ -391,6 +392,7 @@ public class NodeFileSeekableSource(private val pathStr: String) : SeekableSourc
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (isClosed) return -1
         val result: Int
         if (pos >= totalLength) {
             result = -1
@@ -434,15 +436,19 @@ public class NodeFileSeekableSource(private val pathStr: String) : SeekableSourc
     }
 
     override fun seek(position: Long) {
+        if (isClosed) return
         pos = maxOf(0L, minOf(position, totalLength))
     }
 
-    override fun position(): Long = pos
+    override fun position(): Long = if (isClosed) 0L else pos
 
-    override fun length(): Long = totalLength
+    override fun length(): Long = if (isClosed) 0L else totalLength
 
     override fun close() {
-        fs.closeSync(fd)
+        if (!isClosed) {
+            isClosed = true
+            fs.closeSync(fd)
+        }
     }
 }
 
@@ -578,6 +584,7 @@ private class JsArchiveReader(
 
     override fun close() {
         if (!isClosed) {
+            isClosed = true
             val rawHandle = (
                 js(
                 "function(h) { return globalThis['BigInt'](h.toString()); }"
@@ -589,8 +596,11 @@ private class JsArchiveReader(
             wasm.removeFunction(seekFuncPtr)
             wasm.removeFunction(posFuncPtr)
             wasm.removeFunction(lenFuncPtr)
-            releaseOpaque(sourceOpaqueId)
-            isClosed = true
+            try {
+                (getOpaque(sourceOpaqueId) as? SeekableSource)?.close()
+            } finally {
+                releaseOpaque(sourceOpaqueId)
+            }
         }
     }
 }

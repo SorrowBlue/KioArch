@@ -392,4 +392,20 @@ class ArchiveReaderIosTest {
 
         assertTrue(growth < 15 * 1024 * 1024, "Memory leak detected in large file extraction! Growth: ${growth / 1024 / 1024} MB")
     }
+
+    @Test
+    fun testDoubleCloseAndClosedAccess() {
+        KioArch.createReader(tinyZipBytes).use { reader ->
+            ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+        }
+
+        val tempPathStr = createTempZipFile()
+        try {
+            KioArch.createReader(Path(tempPathStr)).use { reader ->
+                ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+            }
+        } finally {
+            remove(tempPathStr)
+        }
+    }
 }

@@ -310,9 +310,16 @@ private class IosArchiveReader(
 
     override fun close() = lock.withLock {
         if (!isClosed) {
-            kio_close_archive(handle.toULong())
-            sourceStableRef.dispose()
             isClosed = true
+            try {
+                kio_close_archive(handle.toULong())
+            } finally {
+                try {
+                    sourceStableRef.get().close()
+                } finally {
+                    sourceStableRef.dispose()
+                }
+            }
         }
     }
 }

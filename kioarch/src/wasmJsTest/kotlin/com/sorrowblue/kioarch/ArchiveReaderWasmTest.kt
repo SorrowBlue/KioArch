@@ -124,8 +124,19 @@ class ArchiveReaderWasmTest {
                     assertTrue(entries.isNotEmpty())
                     assertEquals(2, entries.size)
                 }
+                KioArch.createReader(Path(envPath)).use { reader ->
+                    ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+                }
             }
-            null
+            readTestFile("TEST_ZIP_PATH").then { uint8Array ->
+                if (uint8Array != null) {
+                    val bytes = toByteArray(uint8Array)
+                    KioArch.createReader(bytes).use { reader ->
+                        ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+                    }
+                }
+                null
+            }
         }
     }
 

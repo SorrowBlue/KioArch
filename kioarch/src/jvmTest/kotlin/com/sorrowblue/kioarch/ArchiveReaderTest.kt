@@ -273,4 +273,22 @@ class ArchiveReaderTest {
             source.close()
         }
     }
+
+    @Test
+    fun testDoubleCloseAndClosedAccess() {
+        val zipFile = File(System.getProperty("TEST_ZIP_PATH"))
+        KioArch.createReader(zipFile).use { reader ->
+            ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+        }
+
+        val sevenzPath = Path(File(System.getProperty("TEST_7Z_PATH")).absolutePath)
+        KioArch.createReader(sevenzPath).use { reader ->
+            ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+        }
+
+        val bz2File = File(System.getProperty("TEST_BZ2_PATH"))
+        KioArch.createReader(bz2File).use { reader ->
+            ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+        }
+    }
 }
