@@ -27,13 +27,13 @@ jobs:
           -x compileJvmNatives -x compileWasmNatives -x compileIosNatives
           --continue
       - name: Upload SARIF (project)
-        uses: github/codeql-action/upload-sarif@v4.38.0
+        uses: github/codeql-action/upload-sarif@v4.39.2
         if: ${{ !cancelled() }}
         with:
           sarif_file: build/reports/detekt/merge.sarif
           category: detekt
       - name: Upload SARIF (build-logic)
-        uses: github/codeql-action/upload-sarif@v4.38.0
+        uses: github/codeql-action/upload-sarif@v4.39.2
         if: ${{ !cancelled() }}
         with:
           sarif_file: build-logic/build/reports/detekt/main.sarif
