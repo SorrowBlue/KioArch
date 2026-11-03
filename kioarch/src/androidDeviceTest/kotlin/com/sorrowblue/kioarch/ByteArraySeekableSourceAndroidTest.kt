@@ -43,5 +43,6 @@ class ByteArraySeekableSourceAndroidTest {
         assertEquals(9.toByte(), buffer[1])
 
         source.close()
+        source.close()
     }
 }

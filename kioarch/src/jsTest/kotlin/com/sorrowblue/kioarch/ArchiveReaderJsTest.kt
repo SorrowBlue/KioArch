@@ -127,8 +127,16 @@ class ArchiveReaderJsTest {
                     assertTrue(entries.isNotEmpty())
                     assertEquals(2, entries.size)
                 }
+                KioArch.createReader(Path(envPath)).use { reader ->
+                    ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+                }
             }
-            null
+            readTestFile("TEST_ZIP_PATH").then { bytes ->
+                KioArch.createReader(bytes).use { reader ->
+                    ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+                }
+                null
+            }
         }
     }
 

@@ -189,4 +189,25 @@ class ArchiveReaderAndroidTest {
             }
         }
     }
+
+    @Test
+    fun testDoubleCloseAndClosedAccess() {
+        val file = createTempZipFile()
+        KioArch.createReader(file.readBytes()).use { reader ->
+            val entries = reader.getEntries()
+            assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
+            val entry = entries.first()
+
+            reader.close()
+            reader.close()
+
+            assertFailsWith<IllegalStateException> {
+                reader.getEntries()
+            }
+
+            assertFailsWith<IllegalStateException> {
+                reader.extractEntry(entry, Buffer())
+            }
+        }
+    }
 }

@@ -1,6 +1,7 @@
 package com.sorrowblue.kioarch
 
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
@@ -233,5 +234,22 @@ object ArchiveReaderTestSpec {
         val buffer = Buffer()
         entry.extract(reader, buffer)
         assertEquals(expectedContent, buffer.readByteArray().decodeToString())
+    }
+
+    fun verifyDoubleCloseAndClosedAccess(reader: ArchiveReader) {
+        val entries = reader.getEntries()
+        assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
+        val entry = entries.first()
+
+        reader.close()
+        reader.close()
+
+        assertFailsWith<IllegalStateException> {
+            reader.getEntries()
+        }
+
+        assertFailsWith<IllegalStateException> {
+            reader.extractEntry(entry, Buffer())
+        }
     }
 }
