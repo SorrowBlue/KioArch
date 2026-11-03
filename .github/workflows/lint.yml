@@ -8,42 +8,33 @@ permissions:
 
 jobs:
   analyze:
-    strategy:
-      matrix:
-        include:
-          - name: Detekt
-            task: "reportMerge detektDebug detektDebugAndroidTest detektDebugUnitTest detektDeviceTestAndroid detektHostTestAndroid detektMain detektMainAndroid detektMainJvm detektRelease detektTest detektTestJvm --continue"
-            sarif_file: "build/reports/detekt/merge.sarif"
-            category: "detekt"
-          - name: Detekt (build-logic)
-            task: ":build-logic:detektMain"
-            sarif_file: "build-logic/build/reports/detekt/main.sarif"
-            category: "detekt"
-    name: 🔍️ ${{ matrix.name }}
+    name: 🔍️ Detekt
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
-        with:
-          submodules: recursive
-      - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2.2.0
-        with:
-          github-api-token: ${{ secrets.GITHUB_TOKEN }}
-          cmake-version: '4.1.2'
-      - name: Setup Emscripten (emsdk)
-        uses: emscripten-core/setup-emsdk@v16
-        with:
-          version: '5.0.7'
-          actions-cache-folder: 'emsdk-cache'
-          cache-key: 'emsdk-5.0.7-${{ runner.os }}-${{ runner.arch }}'
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
-      - name: 🔍️Run analyze ${{ matrix.name }}
-        run: ./gradlew ${{ matrix.task }}
-      - name: Upload SARIF
+      - name: 🔍️ Run Detekt
+        run: >
+          ./gradlew
+          :build-logic:detektMain
+          reportMerge
+          detektDebug detektDebugAndroidTest detektDebugUnitTest
+          detektDeviceTestAndroid detektHostTestAndroid
+          detektMain detektMainAndroid detektMainJvm
+          detektRelease detektTest detektTestJvm
+          -x compileJvmNatives -x compileWasmNatives -x compileIosNatives
+          --continue
+      - name: Upload SARIF (project)
         uses: github/codeql-action/upload-sarif@v4.38.0
-        if: ${{ !cancelled()}}
+        if: ${{ !cancelled() }}
         with:
-          sarif_file: ${{ matrix.sarif_file }}
-          category: ${{ matrix.category }}
+          sarif_file: build/reports/detekt/merge.sarif
+          category: detekt
+      - name: Upload SARIF (build-logic)
+        uses: github/codeql-action/upload-sarif@v4.38.0
+        if: ${{ !cancelled() }}
+        with:
+          sarif_file: build-logic/build/reports/detekt/main.sarif
+          category: detekt-build-logic

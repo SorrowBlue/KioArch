@@ -33,6 +33,17 @@ kotlin {
         withHostTest {}
         withDeviceTest {
             instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+            animationsDisabled = true
+            managedDevices {
+                localDevices {
+                    create("pixel7ProApi35") {
+                        device = "Pixel 7 Pro"
+                        sdkVersion = 35
+                        systemImageSource = "aosp"
+                        testedAbi = "x86_64"
+                    }
+                }
+            }
         }
     }
 
@@ -99,12 +110,6 @@ kotlin {
             dependsOn(androidJvmMain)
             resources.srcDir(layout.buildDirectory.dir("generated/natives"))
         }
-        jvmTest {
-            dependencies {
-                implementation(libs.commons.compress)
-                implementation(libs.xz)
-            }
-        }
         androidMain {
             dependsOn(androidJvmMain)
             dependencies {
@@ -124,12 +129,6 @@ kotlin {
                 implementation(libs.androidx.test.runner)
                 implementation(libs.androidx.test.ext.junit)
             }
-        }
-        getByName("jsTest") {
-            resources.srcDir(layout.buildDirectory.dir("tmp/large_tests"))
-        }
-        getByName("wasmJsTest") {
-            resources.srcDir(layout.buildDirectory.dir("tmp/large_tests"))
         }
     }
 
