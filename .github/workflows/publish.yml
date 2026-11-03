@@ -80,7 +80,7 @@ jobs:
             konan-${{ runner.os }}-
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: natives-**
           path: kioarch/build/generated/natives/
@@ -127,7 +127,7 @@ jobs:
             konan-${{ runner.os }}-
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: natives-**
           path: kioarch/build/generated/natives/
