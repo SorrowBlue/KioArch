@@ -5,16 +5,14 @@ import java.io.FileOutputStream
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.io.Buffer
 import kotlinx.io.asSink
 import kotlinx.io.buffered
-import kotlinx.io.files.Path
 import kotlinx.io.readByteArray
 
 /**
- * Test class for [ArchiveReader] on JVM.
+ * JVM-specific test class for [ArchiveReader].
  */
 class ArchiveReaderTest {
 
@@ -23,66 +21,18 @@ class ArchiveReaderTest {
     }
 
     @Test
-    fun testSupportedExtensions() {
-        ArchiveReaderTestSpec.verifySupportedExtensions(KioArch.getSupportedExtensions())
-    }
-
-    @Test
-    fun testInvalidArchiveThrowsException() {
-        val invalidData = byteArrayOf(1, 2, 3, 4, 5)
-        assertFailsWith<ArchiveInvalidException> {
-            KioArch.createReader(invalidData).use { reader ->
-                reader.getEntries()
-            }
-        }
-    }
-
-    @Test
-    fun testCorruptedArchiveThrowsException() {
-        val file = File(System.getProperty("TEST_ZIP_PATH"))
-        val bytes = file.readBytes()
-        if (bytes.size > 100) {
-            for (i in 30 until (bytes.size - 22)) {
-                bytes[i] = 0.toByte()
-            }
-        }
-
-        assertFailsWith<ArchiveCorruptedException> {
-            KioArch.createReader(bytes).use { reader ->
-                reader.getEntries()
-            }
-        }
-    }
-
-    @Test
-    fun testRealExtraction() {
-        val file = File(System.getProperty("TEST_7Z_PATH"))
-        KioArch.createReader(file).use { reader ->
-            ArchiveReaderTestSpec.verify7zExtraction(reader)
-        }
-    }
-
-    @Test
-    fun testRealZipExtraction() {
+    fun testRealZipExtractionWithFile() {
         val file = File(System.getProperty("TEST_ZIP_PATH"))
         KioArch.createReader(file).use { reader ->
-            ArchiveReaderTestSpec.verifyZipExtraction(reader)
+            reader.verifyZipExtraction(2)
         }
     }
 
     @Test
-    fun testZipShiftJisFilename() {
-        val file = File(System.getProperty("TEST_SJIS_ZIP_PATH"))
-        KioArch.createReader(file).use { reader ->
-            ArchiveReaderTestSpec.verifyZipShiftJisFilename(reader)
-        }
-    }
-
-    @Test
-    fun testThreadSafetyAndPathNormalization() {
+    fun testThreadSafety() {
         val file = File(System.getProperty("TEST_PATH_NORMAL_ZIP_PATH"))
         KioArch.createReader(file).use { reader ->
-            ArchiveReaderTestSpec.verifyPathNormalization(reader)
+            reader.verifyPathNormalization()
 
             val numThreads = 10
             val threads = List(numThreads) {
@@ -104,82 +54,6 @@ class ArchiveReaderTest {
 
             threads.forEach { it.start() }
             threads.forEach { it.join() }
-        }
-    }
-
-    @Test
-    fun testArchiveEntryExtractExtension() {
-        val file = File(System.getProperty("TEST_EXT_ZIP_PATH"))
-        KioArch.createReader(file).use { reader ->
-            ArchiveReaderTestSpec.verifyArchiveEntryExtractExtension(reader, "hello_extension1")
-        }
-    }
-
-    @Test
-    fun testRealZipExtractionWithPath() {
-        val file = File(System.getProperty("TEST_ZIP_PATH"))
-        val path = Path(file.absolutePath)
-        KioArch.createReader(path).use { reader ->
-            ArchiveReaderTestSpec.verifyZipExtraction(reader)
-        }
-    }
-
-    @Test
-    fun testLargeZipExtraction() {
-        val file = File(System.getProperty("LARGE_ZIP_PATH"))
-        val numFiles = 100
-        val sizePerFile = (10 * 1024 * 1024L) / numFiles
-        val path = Path(file.absolutePath)
-        KioArch.createReader(path).use { reader ->
-            ArchiveReaderTestSpec.verifyLargeExtraction(reader, numFiles, sizePerFile)
-        }
-    }
-
-    @Test
-    fun testRealTarGzExtraction() {
-        val file = File(System.getProperty("TEST_TARGZ_PATH"))
-        KioArch.createReader(file).use { reader ->
-            ArchiveReaderTestSpec.verifyTarGzExtraction(reader)
-        }
-    }
-
-    @Test
-    fun testLarge7zExtraction() {
-        val file = File(System.getProperty("LARGE_7Z_PATH"))
-        val numFiles = 100
-        val sizePerFile = (10 * 1024 * 1024L) / numFiles
-        val path = Path(file.absolutePath)
-        KioArch.createReader(path).use { reader ->
-            ArchiveReaderTestSpec.verifyLargeExtraction(reader, numFiles, sizePerFile)
-        }
-    }
-
-    @Test
-    fun testLargeTarGzExtraction() {
-        val file = File(System.getProperty("LARGE_TARGZ_PATH"))
-        val numFiles = 100
-        val sizePerFile = (10 * 1024 * 1024L) / numFiles
-        val path = Path(file.absolutePath)
-        KioArch.createReader(path).use { reader ->
-            ArchiveReaderTestSpec.verifyLargeExtraction(reader, numFiles, sizePerFile)
-        }
-    }
-
-    @Test
-    fun testRealBzip2Extraction() {
-        val file = File(System.getProperty("TEST_BZ2_PATH"))
-        KioArch.createReader(file).use { reader ->
-            assertTrue(reader is Bzip2ArchiveReader)
-            ArchiveReaderTestSpec.verifyBzip2Extraction(reader)
-        }
-    }
-
-    @Test
-    fun testRealTarBz2Extraction() {
-        val file = File(System.getProperty("TEST_TARBZ2_PATH"))
-        KioArch.createReader(file).use { reader ->
-            assertTrue(reader is Bzip2ArchiveReader)
-            ArchiveReaderTestSpec.verifyTarBz2Extraction(reader)
         }
     }
 
@@ -275,20 +149,15 @@ class ArchiveReaderTest {
     }
 
     @Test
-    fun testDoubleCloseAndClosedAccess() {
+    fun testDoubleCloseAndClosedAccessWithFile() {
         val zipFile = File(System.getProperty("TEST_ZIP_PATH"))
         KioArch.createReader(zipFile).use { reader ->
-            ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
-        }
-
-        val sevenzPath = Path(File(System.getProperty("TEST_7Z_PATH")).absolutePath)
-        KioArch.createReader(sevenzPath).use { reader ->
-            ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+            reader.verifyDoubleCloseAndClosedAccess()
         }
 
         val bz2File = File(System.getProperty("TEST_BZ2_PATH"))
         KioArch.createReader(bz2File).use { reader ->
-            ArchiveReaderTestSpec.verifyDoubleCloseAndClosedAccess(reader)
+            reader.verifyDoubleCloseAndClosedAccess()
         }
     }
 }

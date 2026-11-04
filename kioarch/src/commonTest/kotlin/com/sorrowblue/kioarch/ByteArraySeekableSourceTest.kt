@@ -4,10 +4,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Test class for [ByteArraySeekableSource] on Android.
+ * Common test class for [ByteArraySeekableSource].
  */
-@Suppress("MagicNumber")
-class ByteArraySeekableSourceAndroidTest {
+class ByteArraySeekableSourceTest {
 
     @Test
     fun testByteArraySeekableSource() {

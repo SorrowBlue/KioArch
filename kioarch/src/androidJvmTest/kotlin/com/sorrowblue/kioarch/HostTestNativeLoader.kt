@@ -16,30 +16,36 @@ internal object HostTestNativeLoader {
      * in a standard desktop JVM environment (host unit tests).
      */
     @Synchronized
-    @Suppress("NestedBlockDepth")
+    @Suppress("NestedBlockDepth", "TooGenericExceptionCaught")
     fun loadIfNeeded() {
         if (!loaded) {
             val os = System.getProperty("os.name").orEmpty().lowercase()
             val (dir, ext) = when {
                 os.contains("win") -> "windows/amd64" to "dll"
                 os.contains("linux") -> "linux/amd64" to "so"
+                os.contains("mac") || os.contains("darwin") -> "macos/universal" to "dylib"
                 else -> "" to ""
             }
 
             if (dir.isNotEmpty()) {
                 val prefix = if (os.contains("win")) "" else "lib"
-                val resourcePath = "/natives/$dir/${prefix}kioarch.$ext"
+                val relativePath = "$dir/${prefix}kioarch.$ext"
+                val resourcePath = "/natives/$relativePath"
                 val inputStream = HostTestNativeLoader::class.java.getResourceAsStream(
                     resourcePath
-                )
+                ) ?: File("build/generated/natives/natives/$relativePath")
+                    .takeIf { it.exists() }
+                    ?.inputStream()
 
                 if (inputStream != null) {
                     try {
                         val tempFile = File.createTempFile("libkioarch_hosttest", ".$ext")
                         tempFile.deleteOnExit()
 
-                        FileOutputStream(tempFile).use { outputStream ->
-                            inputStream.copyTo(outputStream)
+                        inputStream.use { input ->
+                            FileOutputStream(tempFile).use { outputStream ->
+                                input.copyTo(outputStream)
+                            }
                         }
 
                         System.load(tempFile.absolutePath)
