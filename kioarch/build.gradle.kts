@@ -50,7 +50,13 @@ kotlin {
     jvm()
 
     js {
-        nodejs()
+        nodejs {
+            testTask {
+                useMocha {
+                    timeout = "30s"
+                }
+            }
+        }
         browser {}
         compilerOptions {
             freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
