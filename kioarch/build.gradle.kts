@@ -101,14 +101,21 @@ kotlin {
         commonTest {
             dependencies {
                 implementation(kotlin("test"))
+                implementation(libs.kotlinx.coroutines.test)
             }
         }
         val androidJvmMain = create("androidJvmMain") {
             dependsOn(commonMain.get())
         }
+        val androidJvmTest = create("androidJvmTest") {
+            dependsOn(commonTest.get())
+        }
         jvmMain {
             dependsOn(androidJvmMain)
             resources.srcDir(layout.buildDirectory.dir("generated/natives"))
+        }
+        jvmTest {
+            dependsOn(androidJvmTest)
         }
         androidMain {
             dependsOn(androidJvmMain)
@@ -116,6 +123,10 @@ kotlin {
                 implementation(projects.kioarch.android)
                 implementation(libs.androidx.startup)
             }
+        }
+        getByName("androidHostTest") {
+            dependsOn(androidJvmTest)
+            resources.srcDir(layout.buildDirectory.dir("generated/natives"))
         }
         jsMain {
             resources.srcDir(layout.buildDirectory.dir("generated/wasm"))

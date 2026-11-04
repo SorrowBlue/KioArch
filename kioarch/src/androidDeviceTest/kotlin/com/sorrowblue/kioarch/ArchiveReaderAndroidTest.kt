@@ -13,23 +13,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.io.Buffer
-import kotlinx.io.files.Path
 import kotlinx.io.readByteArray
 
 /**
  * Instrumented device tests for [ArchiveReader] Android target.
  */
 class ArchiveReaderAndroidTest {
-
-    @Test
-    fun testInvalidArchiveThrowsException() {
-        val invalidData = byteArrayOf(1, 2, 3, 4, 5)
-        assertFailsWith<ArchiveInvalidException> {
-            KioArch.createReader(invalidData).use { reader ->
-                reader.getEntries()
-            }
-        }
-    }
 
     private fun createTempZipFile(): File {
         val tempFile = File.createTempFile("kioarch_android_test", ".zip")
@@ -54,25 +43,7 @@ class ArchiveReaderAndroidTest {
     }
 
     @Test
-    fun testRealZipExtraction() {
-        val file = createTempZipFile()
-        KioArch.createReader(file.readBytes()).use { reader ->
-            val entries = reader.getEntries()
-            assertTrue(entries.isNotEmpty(), "Archive should have at least one entry")
-
-            val fileEntry = entries.firstOrNull { !it.isDirectory && it.size > 0 }
-            if (fileEntry != null) {
-                val buffer = Buffer()
-                reader.extractEntry(fileEntry, buffer)
-                assertEquals(fileEntry.size, buffer.size)
-            } else {
-                assertTrue(false, "No non-empty file entries found to test extraction.")
-            }
-        }
-    }
-
-    @Test
-    fun testThreadSafetyAndPathNormalization() {
+    fun testThreadSafety() {
         val tempFile = File.createTempFile("kioarch_android_thread_test", ".zip")
         tempFile.deleteOnExit()
 
@@ -109,45 +80,6 @@ class ArchiveReaderAndroidTest {
 
             threads.forEach { it.start() }
             threads.forEach { it.join() }
-        }
-    }
-
-    @Test
-    fun testArchiveEntryExtractExtension() {
-        val tempFile = File.createTempFile("kioarch_android_ext_test", ".zip")
-        tempFile.deleteOnExit()
-
-        ZipOutputStream(FileOutputStream(tempFile)).use { zos ->
-            zos.putNextEntry(ZipEntry("test.txt"))
-            zos.write("hello_extension_android".toByteArray())
-            zos.closeEntry()
-        }
-
-        KioArch.createReader(tempFile.readBytes()).use { reader ->
-            val entries = reader.getEntries()
-            assertEquals(1, entries.size)
-            val entry = entries[0]
-            val buffer = Buffer()
-            entry.extract(reader, buffer)
-            assertEquals("hello_extension_android", buffer.readByteArray().decodeToString())
-        }
-    }
-
-    @Test
-    fun testRealZipExtractionWithPath() {
-        val file = createTempZipFile()
-        val path = Path(file.absolutePath)
-        KioArch.createReader(path).use { reader ->
-            val entries = reader.getEntries()
-            assertTrue(entries.isNotEmpty())
-            val fileEntry = entries.firstOrNull { !it.isDirectory && it.size > 0 }
-            if (fileEntry != null) {
-                val buffer = Buffer()
-                reader.extractEntry(fileEntry, buffer)
-                assertEquals(fileEntry.size, buffer.size)
-            } else {
-                assertTrue(false, "No non-empty file entries found in test.zip")
-            }
         }
     }
 

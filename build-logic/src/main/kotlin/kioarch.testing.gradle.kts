@@ -21,32 +21,41 @@ val generateTestFiles = tasks.register("generateTestFiles", GenerateTestFilesTas
 tasks.withType(KotlinNativeTest::class.java).configureEach {
     dependsOn(generateTestFiles)
     val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
-    environment("LARGE_ZIP_PATH", "$testDir/large.zip")
-    environment("LARGE_7Z_PATH", "$testDir/large.7z")
-    environment("LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
-    environment("TEST_BZ2_PATH", "$testDir/test.bz2")
-    environment("TEST_TARBZ2_PATH", "$testDir/test.tar.bz2")
-
-    // Pass environment variables to the iOS Simulator test runner
-    environment("SIMCTL_CHILD_LARGE_ZIP_PATH", "$testDir/large.zip")
-    environment("SIMCTL_CHILD_LARGE_7Z_PATH", "$testDir/large.7z")
-    environment("SIMCTL_CHILD_LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
-    environment("SIMCTL_CHILD_TEST_BZ2_PATH", "$testDir/test.bz2")
-    environment("SIMCTL_CHILD_TEST_TARBZ2_PATH", "$testDir/test.tar.bz2")
+    val testFiles = mapOf(
+        "TEST_ZIP_PATH" to "$testDir/test.zip",
+        "TEST_7Z_PATH" to "$testDir/test.7z",
+        "TEST_TARGZ_PATH" to "$testDir/test.tar.gz",
+        "TEST_BZ2_PATH" to "$testDir/test.bz2",
+        "TEST_TARBZ2_PATH" to "$testDir/test.tar.bz2",
+        "TEST_SJIS_ZIP_PATH" to "$testDir/test_sjis.zip",
+        "TEST_PATH_NORMAL_ZIP_PATH" to "$testDir/test_path_normal.zip",
+        "TEST_BULK_ZIP_PATH" to "$testDir/test_bulk.zip",
+        "TEST_EXT_ZIP_PATH" to "$testDir/test_ext.zip",
+        "LARGE_ZIP_PATH" to "$testDir/large.zip",
+        "LARGE_7Z_PATH" to "$testDir/large.7z",
+        "LARGE_TARGZ_PATH" to "$testDir/large.tar.gz"
+    )
+    testFiles.forEach { (key, value) ->
+        environment(key, value)
+        environment("SIMCTL_CHILD_$key", value)
+    }
 }
 
 tasks.withType(KotlinJsTest::class.java).configureEach {
     dependsOn(generateTestFiles)
     val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
+    environment("TEST_ZIP_PATH", "$testDir/test.zip")
+    environment("TEST_7Z_PATH", "$testDir/test.7z")
+    environment("TEST_TARGZ_PATH", "$testDir/test.tar.gz")
+    environment("TEST_BZ2_PATH", "$testDir/test.bz2")
+    environment("TEST_TARBZ2_PATH", "$testDir/test.tar.bz2")
+    environment("TEST_SJIS_ZIP_PATH", "$testDir/test_sjis.zip")
+    environment("TEST_PATH_NORMAL_ZIP_PATH", "$testDir/test_path_normal.zip")
+    environment("TEST_BULK_ZIP_PATH", "$testDir/test_bulk.zip")
+    environment("TEST_EXT_ZIP_PATH", "$testDir/test_ext.zip")
     environment("LARGE_ZIP_PATH", "$testDir/large.zip")
     environment("LARGE_7Z_PATH", "$testDir/large.7z")
     environment("LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
-    environment("TEST_7Z_PATH", "$testDir/test.7z")
-    environment("TEST_ZIP_PATH", "$testDir/test.zip")
-    environment("TEST_SJIS_ZIP_PATH", "$testDir/test_sjis.zip")
-    environment("TEST_PATH_NORMAL_ZIP_PATH", "$testDir/test_path_normal.zip")
-    environment("TEST_BZ2_PATH", "$testDir/test.bz2")
-    environment("TEST_TARBZ2_PATH", "$testDir/test.tar.bz2")
 }
 
 tasks.withType(Test::class.java).configureEach {

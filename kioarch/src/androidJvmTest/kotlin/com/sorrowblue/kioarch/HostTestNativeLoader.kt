@@ -16,13 +16,14 @@ internal object HostTestNativeLoader {
      * in a standard desktop JVM environment (host unit tests).
      */
     @Synchronized
-    @Suppress("NestedBlockDepth")
+    @Suppress("NestedBlockDepth", "TooGenericExceptionCaught")
     fun loadIfNeeded() {
         if (!loaded) {
             val os = System.getProperty("os.name").orEmpty().lowercase()
             val (dir, ext) = when {
                 os.contains("win") -> "windows/amd64" to "dll"
                 os.contains("linux") -> "linux/amd64" to "so"
+                os.contains("mac") || os.contains("darwin") -> "macos/universal" to "dylib"
                 else -> "" to ""
             }
 

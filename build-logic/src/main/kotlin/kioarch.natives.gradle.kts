@@ -46,7 +46,9 @@ val compileIosNatives = tasks.register("compileIosNatives", CompileIosNativesTas
 // Set up task dependencies
 tasks.configureEach {
     when (name) {
-        "jvmProcessResources" -> dependsOn(compileJvmNatives)
+        "jvmProcessResources",
+        "processAndroidHostTestJavaRes",
+        "compressAndroidHostTestJavaRes" -> dependsOn(compileJvmNatives)
         "jsProcessResources", "wasmJsProcessResources" -> dependsOn(compileWasmNatives)
     }
 }
