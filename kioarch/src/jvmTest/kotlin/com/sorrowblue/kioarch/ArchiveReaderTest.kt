@@ -9,7 +9,6 @@ import kotlin.test.assertTrue
 import kotlinx.io.Buffer
 import kotlinx.io.asSink
 import kotlinx.io.buffered
-import kotlinx.io.files.Path
 import kotlinx.io.readByteArray
 
 /**
@@ -55,28 +54,6 @@ class ArchiveReaderTest {
 
             threads.forEach { it.start() }
             threads.forEach { it.join() }
-        }
-    }
-
-    @Test
-    fun testLargeZipExtraction() {
-        val file = File(System.getProperty("LARGE_ZIP_PATH"))
-        val numFiles = 100
-        val sizePerFile = (10 * 1024 * 1024L) / numFiles
-        val path = Path(file.absolutePath)
-        KioArch.createReader(path).use { reader ->
-            reader.verifyLargeExtraction(numFiles, sizePerFile)
-        }
-    }
-
-    @Test
-    fun testLargeTarGzExtraction() {
-        val file = File(System.getProperty("LARGE_TARGZ_PATH"))
-        val numFiles = 100
-        val sizePerFile = (10 * 1024 * 1024L) / numFiles
-        val path = Path(file.absolutePath)
-        KioArch.createReader(path).use { reader ->
-            reader.verifyLargeExtraction(numFiles, sizePerFile)
         }
     }
 

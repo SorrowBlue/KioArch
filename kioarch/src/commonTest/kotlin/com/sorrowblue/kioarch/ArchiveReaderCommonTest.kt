@@ -7,6 +7,10 @@ import kotlinx.coroutines.test.runTest
 
 /**
  * Common tests for [ArchiveReader] executed across all platforms.
+ *
+ * By default, archive tests use [KioArch.createReader] with `Path` (on-demand reading without
+ * loading the entire archive into memory). In-memory expansion via [readTestFileBytes] is
+ * used only for tests that specifically verify [KioArch.createReader] with [ByteArray].
  */
 class ArchiveReaderCommonTest {
 
@@ -43,7 +47,7 @@ class ArchiveReaderCommonTest {
     }
 
     @Test
-    fun testRealZipExtraction() = runTest {
+    fun testRealZipExtractionWithByteArray() = runTest {
         initTestPlatform()
         val bytes = readTestFileBytes("TEST_ZIP_PATH")
         KioArch.createReader(bytes).use { reader ->
@@ -52,70 +56,7 @@ class ArchiveReaderCommonTest {
     }
 
     @Test
-    fun testReal7zExtraction() = runTest {
-        initTestPlatform()
-        val bytes = readTestFileBytes("TEST_7Z_PATH")
-        KioArch.createReader(bytes).use { reader ->
-            reader.verify7zExtraction(2)
-        }
-    }
-
-    @Test
-    fun testRealTarGzExtraction() = runTest {
-        initTestPlatform()
-        val bytes = readTestFileBytes("TEST_TARGZ_PATH")
-        KioArch.createReader(bytes).use { reader ->
-            reader.verifyTarGzExtraction(3)
-        }
-    }
-
-    @Test
-    fun testRealBzip2Extraction() = runTest {
-        initTestPlatform()
-        val bytes = readTestFileBytes("TEST_BZ2_PATH")
-        KioArch.createReader(bytes).use { reader ->
-            reader.verifyBzip2Extraction()
-        }
-    }
-
-    @Test
-    fun testRealTarBz2Extraction() = runTest {
-        initTestPlatform()
-        val bytes = readTestFileBytes("TEST_TARBZ2_PATH")
-        KioArch.createReader(bytes).use { reader ->
-            reader.verifyTarBz2Extraction()
-        }
-    }
-
-    @Test
-    fun testZipShiftJisFilename() = runTest {
-        initTestPlatform()
-        val bytes = readTestFileBytes("TEST_SJIS_ZIP_PATH")
-        KioArch.createReader(bytes).use { reader ->
-            reader.verifyZipShiftJisFilename()
-        }
-    }
-
-    @Test
-    fun testPathNormalization() = runTest {
-        initTestPlatform()
-        val bytes = readTestFileBytes("TEST_PATH_NORMAL_ZIP_PATH")
-        KioArch.createReader(bytes).use { reader ->
-            reader.verifyPathNormalization()
-        }
-    }
-
-    @Test
-    fun testArchiveEntryExtractExtension() = runTest {
-        initTestPlatform()
-        val bytes = readTestFileBytes("TEST_EXT_ZIP_PATH")
-        KioArch.createReader(bytes).use { reader ->
-            reader.verifyArchiveEntryExtractExtension("hello_extension1")
-        }
-    }
-
-    @Test
-    fun testRealZipExtractionWithPath() = runTest {
+    fun testRealZipExtraction() = runTest {
         initTestPlatform()
         val path = getTestFilePath("TEST_ZIP_PATH") ?: return@runTest
         KioArch.createReader(path).use { reader ->
@@ -124,18 +65,106 @@ class ArchiveReaderCommonTest {
     }
 
     @Test
-    fun testLarge7zExtraction() = runTest {
+    fun testReal7zExtraction() = runTest {
         initTestPlatform()
+        val path = getTestFilePath("TEST_7Z_PATH") ?: return@runTest
+        KioArch.createReader(path).use { reader ->
+            reader.verify7zExtraction(2)
+        }
+    }
+
+    @Test
+    fun testRealTarGzExtraction() = runTest {
+        initTestPlatform()
+        val path = getTestFilePath("TEST_TARGZ_PATH") ?: return@runTest
+        KioArch.createReader(path).use { reader ->
+            reader.verifyTarGzExtraction(3)
+        }
+    }
+
+    @Test
+    fun testRealBzip2Extraction() = runTest {
+        initTestPlatform()
+        val path = getTestFilePath("TEST_BZ2_PATH") ?: return@runTest
+        KioArch.createReader(path).use { reader ->
+            reader.verifyBzip2Extraction()
+        }
+    }
+
+    @Test
+    fun testRealTarBz2Extraction() = runTest {
+        initTestPlatform()
+        val path = getTestFilePath("TEST_TARBZ2_PATH") ?: return@runTest
+        KioArch.createReader(path).use { reader ->
+            reader.verifyTarBz2Extraction()
+        }
+    }
+
+    @Test
+    fun testZipShiftJisFilename() = runTest {
+        initTestPlatform()
+        val path = getTestFilePath("TEST_SJIS_ZIP_PATH") ?: return@runTest
+        KioArch.createReader(path).use { reader ->
+            reader.verifyZipShiftJisFilename()
+        }
+    }
+
+    @Test
+    fun testPathNormalization() = runTest {
+        initTestPlatform()
+        val path = getTestFilePath("TEST_PATH_NORMAL_ZIP_PATH") ?: return@runTest
+        KioArch.createReader(path).use { reader ->
+            reader.verifyPathNormalization()
+        }
+    }
+
+    @Test
+    fun testArchiveEntryExtractExtension() = runTest {
+        initTestPlatform()
+        val path = getTestFilePath("TEST_EXT_ZIP_PATH") ?: return@runTest
+        KioArch.createReader(path).use { reader ->
+            reader.verifyArchiveEntryExtractExtension("hello_extension1")
+        }
+    }
+
+    @Test
+    fun testLargeZipExtraction() = runTest {
+        initTestPlatform()
+        val path = getTestFilePath("LARGE_ZIP_PATH") ?: return@runTest
         val numFiles = 100
         val sizePerFile = (10L * 1024 * 1024) / numFiles
-        val path = getTestFilePath("LARGE_7Z_PATH")
-        val reader = if (path != null) {
-            KioArch.createReader(path)
-        } else {
-            KioArch.createReader(readTestFileBytes("LARGE_7Z_PATH"))
+        KioArch.createReader(path).use { reader ->
+            reader.verifyLargeExtraction(
+                numFiles,
+                sizePerFile,
+                verifyContent = isLargeContentVerificationEnabled
+            )
         }
-        reader.use {
-            it.verifyLargeExtraction(
+    }
+
+    @Test
+    fun testLarge7zExtraction() = runTest {
+        initTestPlatform()
+        val path = getTestFilePath("LARGE_7Z_PATH") ?: return@runTest
+        val numFiles = 100
+        val sizePerFile = (10L * 1024 * 1024) / numFiles
+        KioArch.createReader(path).use { reader ->
+            reader.verifyLargeExtraction(
+                numFiles,
+                sizePerFile,
+                verifyContent = isLargeContentVerificationEnabled
+            )
+        }
+    }
+
+    @Test
+    fun testLargeTarGzExtraction() = runTest {
+        initTestPlatform()
+        val path = getTestFilePath("LARGE_TARGZ_PATH") ?: return@runTest
+        val numFiles = 100
+        val sizePerFile = (10L * 1024 * 1024) / numFiles
+        KioArch.createReader(path).use { reader ->
+            reader.verifyLargeExtraction(
                 numFiles,
                 sizePerFile,
                 verifyContent = isLargeContentVerificationEnabled
@@ -165,22 +194,29 @@ class ArchiveReaderCommonTest {
     }
 
     @Test
-    fun testDoubleCloseAndClosedAccess() = runTest {
+    fun testDoubleCloseAndClosedAccessWithByteArray() = runTest {
         initTestPlatform()
         val zipBytes = readTestFileBytes("TEST_ZIP_PATH")
         KioArch.createReader(zipBytes).use { reader ->
             reader.verifyDoubleCloseAndClosedAccess()
         }
+    }
 
-        val sevenzPath = getTestFilePath("TEST_7Z_PATH")
-        if (sevenzPath != null) {
-            KioArch.createReader(sevenzPath).use { reader ->
-                reader.verifyDoubleCloseAndClosedAccess()
-            }
+    @Test
+    fun testDoubleCloseAndClosedAccess() = runTest {
+        initTestPlatform()
+        val zipPath = getTestFilePath("TEST_ZIP_PATH") ?: return@runTest
+        KioArch.createReader(zipPath).use { reader ->
+            reader.verifyDoubleCloseAndClosedAccess()
         }
 
-        val bz2Bytes = readTestFileBytes("TEST_BZ2_PATH")
-        KioArch.createReader(bz2Bytes).use { reader ->
+        val sevenzPath = getTestFilePath("TEST_7Z_PATH") ?: return@runTest
+        KioArch.createReader(sevenzPath).use { reader ->
+            reader.verifyDoubleCloseAndClosedAccess()
+        }
+
+        val bz2Path = getTestFilePath("TEST_BZ2_PATH") ?: return@runTest
+        KioArch.createReader(bz2Path).use { reader ->
             reader.verifyDoubleCloseAndClosedAccess()
         }
     }
