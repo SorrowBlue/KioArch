@@ -44,6 +44,8 @@ jobs:
               - '!.agent/**'
               - '!LICENSE*'
             ios:
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/test.yml'
               - 'kioarch/src/commonMain/**'
               - 'kioarch/src/commonTest/**'
               - 'kioarch/src/iosMain/**'
@@ -54,6 +56,8 @@ jobs:
               - 'build-logic/**'
               - 'gradle/**'
             cpp:
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/build.yml'
               - 'kioarch/src/cpp/**'
               - 'build-logic/**'
               - 'gradle/**'
