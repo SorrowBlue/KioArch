@@ -126,7 +126,6 @@ kotlin {
         }
         getByName("androidHostTest") {
             dependsOn(androidJvmTest)
-            resources.srcDir(layout.buildDirectory.dir("generated/natives"))
         }
         jsMain {
             resources.srcDir(layout.buildDirectory.dir("generated/wasm"))
