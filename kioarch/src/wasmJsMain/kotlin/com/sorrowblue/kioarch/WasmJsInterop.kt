@@ -52,6 +52,51 @@ internal fun putSourceJs(
     lenFn: () -> Double
 ): Unit = putSourceJsInternal(id, readFn, seekFn, posFn, lenFn)
 
+@JsFun(
+    """(module, idx, w0, w1, w2, w3, w4, w5, w6, w7) => {
+        var h = module.HEAP32;
+        h[idx] = w0;
+        h[idx + 1] = w1;
+        h[idx + 2] = w2;
+        h[idx + 3] = w3;
+        h[idx + 4] = w4;
+        h[idx + 5] = w5;
+        h[idx + 6] = w6;
+        h[idx + 7] = w7;
+    }"""
+)
+private external fun writeHeap32x8Internal(
+    module: JsAny,
+    idx: Int,
+    w0: Int,
+    w1: Int,
+    w2: Int,
+    w3: Int,
+    w4: Int,
+    w5: Int,
+    w6: Int,
+    w7: Int
+)
+
+internal fun writeHeap32x8(
+    module: JsAny,
+    idx: Int,
+    w0: Int,
+    w1: Int,
+    w2: Int,
+    w3: Int,
+    w4: Int,
+    w5: Int,
+    w6: Int,
+    w7: Int
+): Unit = writeHeap32x8Internal(module, idx, w0, w1, w2, w3, w4, w5, w6, w7)
+
+@JsFun("(module, addr, value) => { module.HEAPU8[addr] = value; }")
+private external fun writeHeapU8Internal(module: JsAny, addr: Int, value: Int)
+
+internal fun writeHeapU8(module: JsAny, addr: Int, value: Int): Unit =
+    writeHeapU8Internal(module, addr, value)
+
 @JsFun("(id) => { globalThis.kioarchSources.delete(id); }")
 private external fun removeSourceJsInternal(id: Int)
 
@@ -289,38 +334,54 @@ internal fun wasmRemoveFunction(module: JsAny, ptr: Int): Unit =
 // --- Dynamic Memory Copy Helpers ---
 
 @JsFun(
-    """(module, bufPtr, getByteFn, len) => {
-        var heap = new Uint8Array(module.HEAPU8.buffer, bufPtr, len);
-        for (var i = 0; i < len; i++) {
-            heap[i] = getByteFn(i);
+    """(module, bufPtr, set32Fn, setByteFn, len) => {
+        var heap = module.HEAPU8;
+        var i = 0;
+        var limit32 = len - 31;
+        if ((bufPtr & 3) === 0) {
+            var heap32 = module.HEAP32;
+            while (i < limit32) {
+                var idx = (bufPtr + i) >> 2;
+                set32Fn(
+                    i,
+                    heap32[idx],
+                    heap32[idx + 1],
+                    heap32[idx + 2],
+                    heap32[idx + 3],
+                    heap32[idx + 4],
+                    heap32[idx + 5],
+                    heap32[idx + 6],
+                    heap32[idx + 7]
+                );
+                i += 32;
+            }
+        } else {
+            var view = new DataView(heap.buffer, bufPtr, len);
+            while (i < limit32) {
+                set32Fn(
+                    i,
+                    view.getInt32(i, true),
+                    view.getInt32(i + 4, true),
+                    view.getInt32(i + 8, true),
+                    view.getInt32(i + 12, true),
+                    view.getInt32(i + 16, true),
+                    view.getInt32(i + 20, true),
+                    view.getInt32(i + 24, true),
+                    view.getInt32(i + 28, true)
+                );
+                i += 32;
+            }
         }
-    }"""
-)
-private external fun copyToHeapJsInternal(
-    module: JsAny,
-    bufPtr: Int,
-    getByteFn: (Int) -> Byte,
-    len: Int
-)
-
-internal fun copyToHeapJs(
-    module: JsAny,
-    bufPtr: Int,
-    getByteFn: (Int) -> Byte,
-    len: Int
-): Unit = copyToHeapJsInternal(module, bufPtr, getByteFn, len)
-
-@JsFun(
-    """(module, bufPtr, setByteFn, len) => {
-        var heap = new Uint8Array(module.HEAPU8.buffer, bufPtr, len);
-        for (var i = 0; i < len; i++) {
-            setByteFn(i, heap[i]);
+        while (i < len) {
+            setByteFn(i, heap[bufPtr + i]);
+            i++;
         }
     }"""
 )
 private external fun copyFromHeapJsInternal(
     module: JsAny,
     bufPtr: Int,
+    set32Fn: (Int, Int, Int, Int, Int, Int, Int, Int, Int) -> Unit,
     setByteFn: (Int, Byte) -> Unit,
     len: Int
 )
@@ -328,9 +389,10 @@ private external fun copyFromHeapJsInternal(
 internal fun copyFromHeapJs(
     module: JsAny,
     bufPtr: Int,
+    set32Fn: (Int, Int, Int, Int, Int, Int, Int, Int, Int) -> Unit,
     setByteFn: (Int, Byte) -> Unit,
     len: Int
-): Unit = copyFromHeapJsInternal(module, bufPtr, setByteFn, len)
+): Unit = copyFromHeapJsInternal(module, bufPtr, set32Fn, setByteFn, len)
 
 @JsFun("(rawHandle) => BigInt(rawHandle)")
 private external fun toBigIntInternal(rawHandle: JsAny): JsAny

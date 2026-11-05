@@ -40,6 +40,7 @@ dependencyResolutionManagement {
 rootProject.name = "KioArch-root"
 include(":kioarch")
 include(":kioarch:android")
+include(":benchmark")
 include(":sample")
 include(":sample:android")
 include(":sample:web")

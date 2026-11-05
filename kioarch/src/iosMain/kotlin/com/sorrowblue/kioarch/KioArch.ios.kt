@@ -282,8 +282,10 @@ private class IosArchiveReader(
                         if (opaque == null || buf == null) return@staticCFunction
                         val innerSink = opaque.asStableRef<Sink>().get()
                         val byteArray = ByteArray(len)
-                        for (i in 0 until len) {
-                            byteArray[i] = buf[i].toByte()
+                        if (len > 0) {
+                            byteArray.usePinned { pinned ->
+                                memcpy(pinned.addressOf(0), buf, len.toULong())
+                            }
                         }
                         innerSink.write(byteArray, 0, len)
                     }
@@ -367,8 +369,8 @@ public actual object KioArch {
                         val byteArray = ByteArray(len)
                         val readBytes = innerSource.read(byteArray, 0, len)
                         if (readBytes > 0) {
-                            for (i in 0 until readBytes) {
-                                buf[i] = byteArray[i].toUByte()
+                            byteArray.usePinned { pinned ->
+                                memcpy(buf, pinned.addressOf(0), readBytes.toULong())
                             }
                         }
                         readBytes

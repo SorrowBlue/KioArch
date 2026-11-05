@@ -80,14 +80,14 @@ kotlin {
             "iosSimulatorArm64" -> "Release-iphonesimulator"
             else -> "Release-iphoneos"
         }
-        val libDir = layout.buildDirectory.dir("generated/ios/natives/$architecture").get().asFile
-        target.compilations.getByName("main") {
-            cinterops.create("kioarch") {
-                definitionFile = project.file("src/nativeInterop/cinterop/kioarch.def")
+        val libDir = layout.buildDirectory.dir("generated/ios/natives/$architecture")
+        target.compilations.named("main") {
+            cinterops.register("kioarch") {
+                definitionFile.set(project.file("src/nativeInterop/cinterop/kioarch.def"))
                 includeDirs(
                     project.file("src/cpp")
                 )
-                extraOpts("-libraryPath", libDir.absolutePath)
+                extraOpts("-libraryPath", libDir.get().asFile.absolutePath)
             }
         }
         target.binaries.framework {
@@ -110,28 +110,28 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.test)
             }
         }
-        val androidJvmMain = create("androidJvmMain") {
+        val androidJvmMain = register("androidJvmMain") {
             dependsOn(commonMain.get())
         }
-        val androidJvmTest = create("androidJvmTest") {
+        val androidJvmTest = register("androidJvmTest") {
             dependsOn(commonTest.get())
         }
         jvmMain {
-            dependsOn(androidJvmMain)
+            dependsOn(androidJvmMain.get())
             resources.srcDir(layout.buildDirectory.dir("generated/natives"))
         }
         jvmTest {
-            dependsOn(androidJvmTest)
+            dependsOn(androidJvmTest.get())
         }
         androidMain {
-            dependsOn(androidJvmMain)
+            dependsOn(androidJvmMain.get())
             dependencies {
                 implementation(projects.kioarch.android)
                 implementation(libs.androidx.startup)
             }
         }
-        getByName("androidHostTest") {
-            dependsOn(androidJvmTest)
+        named("androidHostTest") {
+            dependsOn(androidJvmTest.get())
         }
         jsMain {
             resources.srcDir(layout.buildDirectory.dir("generated/wasm"))
@@ -139,17 +139,17 @@ kotlin {
         wasmJsMain {
             resources.srcDir(layout.buildDirectory.dir("generated/wasm"))
         }
-        getByName("androidDeviceTest") {
+        named("androidDeviceTest") {
             dependencies {
                 implementation(kotlin("test"))
                 implementation(libs.androidx.test.runner)
                 implementation(libs.androidx.test.ext.junit)
             }
         }
-        getByName("jsTest") {
+        named("jsTest") {
             resources.srcDir(tasks.named("generateTestFiles"))
         }
-        getByName("wasmJsTest") {
+        named("wasmJsTest") {
             resources.srcDir(tasks.named("generateTestFiles"))
         }
     }

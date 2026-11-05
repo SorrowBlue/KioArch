@@ -6,6 +6,13 @@ maven-publish = "0.37.0"
 dokka = "2.2.0"
 detekt = "2.0.0-alpha.6"
 detekt-compose = "0.6.8"
+kotlinxBenchmark = "0.5.0"
+androidxBenchmark = "1.5.0"
+jmh = "1.37"
+xchart = "4.0.4"
+vectorgraphics2d = "0.13"
+sevenzipjbindingAndroid = "16.02-2.4"
+sevenzipjbindingJvm = "16.02-2.01"
 
 # Libraries
 java = "21"
@@ -59,11 +66,22 @@ filekit-dialogsCompose = { group = "io.github.vinceglb", name = "filekit-dialogs
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-swing = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-swing", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+kotlinx-benchmark-runtime = { group = "org.jetbrains.kotlinx", name = "kotlinx-benchmark-runtime", version.ref = "kotlinxBenchmark" }
+kotlinx-benchmark-runtime-jvm = { group = "org.jetbrains.kotlinx", name = "kotlinx-benchmark-runtime-jvm", version.ref = "kotlinxBenchmark" }
+androidx-benchmark-junit4 = { group = "androidx.benchmark", name = "benchmark-junit4", version.ref = "androidxBenchmark" }
+jmh-core = { group = "org.openjdk.jmh", name = "jmh-core", version.ref = "jmh" }
+xchart = { group = "org.knowm.xchart", name = "xchart", version.ref = "xchart" }
+vectorgraphics2d = { group = "de.erichseifert.vectorgraphics2d", name = "VectorGraphics2D", version.ref = "vectorgraphics2d" }
+sevenzipjbinding-android = { group = "com.sorrowblue.sevenzipjbinding", name = "7-Zip-JBinding-4Android", version.ref = "sevenzipjbindingAndroid" }
+sevenzipjbinding-jvm = { group = "net.sf.sevenzipjbinding", name = "sevenzipjbinding", version.ref = "sevenzipjbindingJvm" }
+sevenzipjbinding-all-platforms = { group = "net.sf.sevenzipjbinding", name = "sevenzipjbinding-all-platforms", version.ref = "sevenzipjbindingJvm" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-allopen = { id = "org.jetbrains.kotlin.plugin.allopen", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlinx-benchmark = { id = "org.jetbrains.kotlinx.benchmark", version.ref = "kotlinxBenchmark" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 android-multiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 android-application = { id = "com.android.application", version.ref = "agp" }

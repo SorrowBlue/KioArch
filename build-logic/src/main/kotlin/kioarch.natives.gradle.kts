@@ -1,9 +1,10 @@
 import TargetOs.Companion.currentOs
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.tasks.CInteropProcess
 
-val config = extensions.create("compileNative", CompileNativeExtension::class.java)
+val config = extensions.create<CompileNativeExtension>("compileNative")
 
-val compileJvmNatives = tasks.register("compileJvmNatives", CompileJvmNativesTask::class.java) {
+val compileJvmNatives = tasks.register<CompileJvmNativesTask>("compileJvmNatives") {
     group = "build"
     description = "Compiles native libraries for JVM"
     cppSourceDir.set(config.jvm.cppSourceDir.orElse(config.cppSourceDir))
@@ -11,30 +12,25 @@ val compileJvmNatives = tasks.register("compileJvmNatives", CompileJvmNativesTas
     targetOs.set(providers.currentOs())
 }
 
-val compileWasmNatives = tasks.register("compileWasmNatives", CompileWasmNativesTask::class.java) {
+val compileWasmNatives = tasks.register<CompileWasmNativesTask>("compileWasmNatives") {
     group = "build"
     description = "Compiles native libraries for JS/Wasm using Emscripten"
     cppSourceDir.set(config.wasm.cppSourceDir.orElse(config.cppSourceDir))
     outputDir.set(config.wasm.outputDir)
 
-    val localProperties = Properties().apply {
-        val file = project.rootProject.file("local.properties")
-        if (file.exists()) {
-            file.inputStream().use { load(it) }
-        }
+    val localPropertiesFile = rootProject.layout.projectDirectory.file("local.properties")
+    val localEmsdkProvider = providers.fileContents(localPropertiesFile).asBytes.map { bytes ->
+        Properties().apply { load(bytes.inputStream()) }.getProperty("emsdk.dir")
     }
-    val emsdkPath = localProperties.getProperty("emsdk.dir")
-        ?: project.findProperty("emsdk.dir") as? String
-    if (emsdkPath != null) {
-        emsdkDir.set(emsdkPath)
-    }
+    emsdkDir.set(localEmsdkProvider.orElse(providers.gradleProperty("emsdk.dir")))
 }
 
-val compileIosNatives = tasks.register("compileIosNatives", CompileIosNativesTask::class.java) {
+val compileIosNatives = tasks.register<CompileIosNativesTask>("compileIosNatives") {
     group = "build"
     description = "Compiles native libraries for iOS (macOS host only)"
+    val osName = providers.systemProperty("os.name")
     onlyIf {
-        System.getProperty("os.name").lowercase().contains("mac")
+        osName.get().lowercase().contains("mac")
     }
     cppSourceDir.set(config.ios.cppSourceDir.orElse(config.cppSourceDir))
     outputDir.set(config.ios.outputDir)
@@ -51,6 +47,6 @@ tasks.configureEach {
     }
 }
 
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.CInteropProcess::class.java).configureEach {
+tasks.withType<CInteropProcess>().configureEach {
     dependsOn(compileIosNatives)
 }

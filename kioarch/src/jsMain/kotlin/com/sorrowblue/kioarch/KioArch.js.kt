@@ -30,6 +30,7 @@ private const val ENTRY_SIZE_OFFSET = 8
 
 // Global map to track active Kotlin objects passed to C callbacks
 private val opaqueMap = mutableMapOf<Int, Any>()
+private val readBufferMap = mutableMapOf<Int, ByteArray>()
 private var nextOpaqueId = 1
 
 @JsName("registerOpaque")
@@ -45,6 +46,7 @@ internal fun getOpaque(id: Int): Any? = opaqueMap[id]
 @JsName("releaseOpaque")
 internal fun releaseOpaque(id: Int) {
     opaqueMap.remove(id)
+    readBufferMap.remove(id)
 }
 
 private fun wasmUtf8ToString(wasm: dynamic, namePtr: Int): String {
@@ -105,14 +107,45 @@ private fun wasmUtf8ToString(wasm: dynamic, namePtr: Int): String {
     return decoder(wasm, namePtr)
 }
 
+private const val INITIAL_READ_BUFFER_SIZE = 256 * 1024
+private const val WRITE_CHUNK_SIZE = 64 * 1024
+
+private class JsSinkContext(
+    val sink: Sink,
+    val writeBuffer: ByteArray,
+    val writeJsArray: Int8Array
+)
+
 @Suppress("SwallowedException", "TooGenericExceptionCaught")
-private fun bridgeRead(wasm: dynamic, source: Any, bufPtr: Int, len: Int): Int {
-    val innerSource = source as? SeekableSource ?: return -1
+private fun bridgeRead(wasm: dynamic, opaqueId: Int, bufPtr: Int, len: Int): Int {
+    val innerSource = getOpaque(opaqueId) as? SeekableSource ?: return -1
     return try {
-        val tmpArray = ByteArray(len)
-        val bytesRead = innerSource.read(tmpArray, 0, len)
+        if (innerSource is ByteArraySeekableSource) {
+            val srcBytes = innerSource.bytes
+            val currentPos = innerSource.position().toInt()
+            if (currentPos >= srcBytes.size) return -1
+            val toRead = minOf(len, srcBytes.size - currentPos)
+            if (toRead > 0) {
+                val jsArray = srcBytes.asDynamic() as Int8Array
+                val view = Uint8Array(
+                    jsArray.buffer,
+                    jsArray.byteOffset + currentPos,
+                    toRead
+                )
+                wasm.HEAPU8.set(view, bufPtr)
+                innerSource.seek((currentPos + toRead).toLong())
+            }
+            return toRead
+        }
+
+        var readBuffer = readBufferMap[opaqueId]
+        if (readBuffer == null || readBuffer.size < len) {
+            readBuffer = ByteArray(maxOf(len, INITIAL_READ_BUFFER_SIZE))
+            readBufferMap[opaqueId] = readBuffer
+        }
+        val bytesRead = innerSource.read(readBuffer, 0, len)
         if (bytesRead > 0) {
-            val jsArray = tmpArray.asDynamic() as Int8Array
+            val jsArray = readBuffer.asDynamic() as Int8Array
             val view = Uint8Array(
                 jsArray.buffer,
                 jsArray.byteOffset,
@@ -150,18 +183,22 @@ private fun bridgeLength(source: Any): Double = try {
 }
 
 @Suppress("SwallowedException", "TooGenericExceptionCaught")
-private fun bridgeWrite(wasm: dynamic, sink: Any, bufPtr: Int, len: Int) {
-    val innerSink = sink as? Sink ?: return
+private fun bridgeWrite(wasm: dynamic, sinkContextObj: Any, bufPtr: Int, len: Int) {
+    val sinkCtx = sinkContextObj as? JsSinkContext ?: return
     try {
-        val tmpArray = ByteArray(len)
-        val jsArray = tmpArray.asDynamic() as Int8Array
-        val view = Int8Array(
-            wasm.HEAPU8.buffer as ArrayBuffer,
-            bufPtr,
-            len
-        )
-        jsArray.set(view)
-        innerSink.write(tmpArray, 0, len)
+        val heapBuffer = wasm.HEAPU8.buffer as ArrayBuffer
+        var offset = 0
+        while (offset < len) {
+            val chunk = minOf(WRITE_CHUNK_SIZE, len - offset)
+            val view = Int8Array(
+                heapBuffer,
+                bufPtr + offset,
+                chunk
+            )
+            sinkCtx.writeJsArray.set(view)
+            sinkCtx.sink.write(sinkCtx.writeBuffer, 0, chunk)
+            offset += chunk
+        }
     } catch (e: Throwable) {
         // Safe guard to prevent throwing into C++ Wasm boundary
     }
@@ -304,16 +341,14 @@ private fun throwNotInitialized(): Nothing {
 private fun registerJsSourceCallbacks(wasm: dynamic): SourceCallbackPtrs {
     val readFuncCreator = js(
         """
-        function(wasm, getOpaque, bridgeRead) {
+        function(wasm, bridgeRead) {
             return wasm.addFunction(function(opaqueId, bufPtr, len) {
-                var innerSource = getOpaque(opaqueId);
-                if (!innerSource) return -1;
-                return bridgeRead(wasm, innerSource, bufPtr, len);
+                return bridgeRead(wasm, opaqueId, bufPtr, len);
             }, 'iiii');
         }
     """
-    ) as (dynamic, (Int) -> Any?, (dynamic, Any, Int, Int) -> Int) -> Int
-    val readPtr = readFuncCreator(wasm, ::getOpaque, ::bridgeRead)
+    ) as (dynamic, (dynamic, Int, Int, Int) -> Int) -> Int
+    val readPtr = readFuncCreator(wasm, ::bridgeRead)
 
     val seekFuncCreator = js(
         """
@@ -464,16 +499,20 @@ private class JsArchiveReader(
 ) : ArchiveReader {
 
     private var isClosed = false
+    private val rawHandle: dynamic = (
+        js(
+            "function(h) { return globalThis['BigInt'](h.toString()); }"
+        ) as (dynamic) -> dynamic
+        )(handle)
+    private var cachedWriteFuncPtr: Int = 0
+    private var cachedSinkPtr: Int = 0
+    private var cachedErrMsgPtr: Int = 0
+    private val writeBuffer = ByteArray(WRITE_CHUNK_SIZE)
+    private val writeJsArray = writeBuffer.asDynamic() as Int8Array
 
     override fun getEntries(): List<ArchiveEntry> {
         if (isClosed) throw IllegalStateException("Reader is closed")
 
-        // Emscripten receives Long as BigInt
-        val rawHandle = (
-            js(
-            "function(h) { return globalThis['BigInt'](h.toString()); }"
-        ) as (dynamic) -> dynamic
-        )(handle)
         val count = wasm._kio_get_entry_count(rawHandle) as Int
         if (count < 0) return emptyList()
 
@@ -488,17 +527,25 @@ private class JsArchiveReader(
                     val index = heap32[wordOffset + 0] as Int
                     val namePtr = heap32[wordOffset + 1] as Int
 
-                    // Read string from memory using Emscripten helper
-                    val nameStr = wasmUtf8ToString(wasm, namePtr)
+                    // Read string from memory using Emscripten helper and free native C buffer
+                    val nameStr = if (namePtr != 0) {
+                        try {
+                            wasmUtf8ToString(wasm, namePtr)
+                        } finally {
+                            wasm._free(namePtr)
+                        }
+                    } else {
+                        ""
+                    }
                     val normalizedName = nameStr.replace('\\', '/')
 
                     // Size is int64, read from HEAP64/HEAPU32
                     // Emscripten handles 64-bit alignment, so offset of size is 8 bytes (word offset 2 and 3)
                     val sizeVal = (
                         js(
-                        "function(heap, idx) { return Number(heap[idx]); }"
-                    ) as (dynamic, Int) -> Double
-                    )(wasm.HEAP64, (entryPtr + ENTRY_SIZE_OFFSET) / ENTRY_SIZE_OFFSET)
+                            "function(heap, idx) { return Number(heap[idx]); }"
+                        ) as (dynamic, Int) -> Double
+                        )(wasm.HEAP64, (entryPtr + ENTRY_SIZE_OFFSET) / ENTRY_SIZE_OFFSET)
                     val size = sizeVal.toLong()
 
                     val isDir = heap32[wordOffset + 4] as Int != 0
@@ -525,59 +572,50 @@ private class JsArchiveReader(
     override fun extractEntry(entry: ArchiveEntry, sink: Sink) {
         if (isClosed) throw IllegalStateException("Reader is closed")
 
-        val sinkOpaqueId = registerOpaque(sink)
-        var sinkPtr = 0
-        var writeFuncPtr = 0
-
+        val sinkOpaqueId = registerOpaque(JsSinkContext(sink, writeBuffer, writeJsArray))
         try {
-            val writeFuncCreator = js(
+            if (cachedWriteFuncPtr == 0) {
+                val writeFuncCreator = js(
+                    """
+                    function(wasm, getOpaque, bridgeWrite) {
+                        return wasm.addFunction(function(opaqueId, bufPtr, len) {
+                            var innerSink = getOpaque(opaqueId);
+                            if (innerSink) {
+                                bridgeWrite(wasm, innerSink, bufPtr, len);
+                            }
+                        }, 'viii');
+                    }
                 """
-                function(wasm, getOpaque, bridgeWrite) {
-                    return wasm.addFunction(function(opaqueId, bufPtr, len) {
-                        var innerSink = getOpaque(opaqueId);
-                        if (innerSink) {
-                            bridgeWrite(wasm, innerSink, bufPtr, len);
-                        }
-                    }, 'viii');
-                }
-            """
-            ) as (dynamic, (Int) -> Any?, (dynamic, Any, Int, Int) -> Unit) -> Int
-            writeFuncPtr = writeFuncCreator(wasm, ::getOpaque, ::bridgeWrite)
+                ) as (dynamic, (Int) -> Any?, (dynamic, Any, Int, Int) -> Unit) -> Int
+                cachedWriteFuncPtr = writeFuncCreator(wasm, ::getOpaque, ::bridgeWrite)
+            }
+            if (cachedSinkPtr == 0) {
+                cachedSinkPtr = wasm._malloc(SINK_STRUCT_SIZE) as Int
+            }
+            if (cachedErrMsgPtr == 0) {
+                cachedErrMsgPtr = wasm._malloc(ERR_MSG_BUFFER_SIZE) as Int
+            }
 
-            // Allocate kio_sink_t (8 bytes)
-            sinkPtr = wasm._malloc(SINK_STRUCT_SIZE) as Int
             val heap32 = wasm.HEAP32
-            val wordOffset = sinkPtr / 4
-            heap32[wordOffset + 0] = writeFuncPtr
+            val wordOffset = cachedSinkPtr / 4
+            heap32[wordOffset + 0] = cachedWriteFuncPtr
             heap32[wordOffset + 1] = sinkOpaqueId
 
-            val rawHandle = (
-                js(
-                "function(h) { return globalThis['BigInt'](h.toString()); }"
-            ) as (dynamic) -> dynamic
-            )(handle)
-            val errMsgPtr = wasm._malloc(ERR_MSG_BUFFER_SIZE) as Int
-            try {
-                val success = wasm._kio_extract_entry(
-                    rawHandle,
-                    entry.index,
-                    sinkPtr,
-                    errMsgPtr,
-                    ERR_MSG_BUFFER_SIZE
-                ) as Int
+            val success = wasm._kio_extract_entry(
+                rawHandle,
+                entry.index,
+                cachedSinkPtr,
+                cachedErrMsgPtr,
+                ERR_MSG_BUFFER_SIZE
+            ) as Int
 
-                if (success == 0) {
-                    val errMsg = wasmUtf8ToString(wasm, errMsgPtr)
-                    throw ArchiveIOException(
-                        "Failed to extract entry: ${entry.name}. Native error: $errMsg"
-                    )
-                }
-            } finally {
-                wasm._free(errMsgPtr)
+            if (success == 0) {
+                val errMsg = wasmUtf8ToString(wasm, cachedErrMsgPtr)
+                throw ArchiveIOException(
+                    "Failed to extract entry: ${entry.name}. Native error: $errMsg"
+                )
             }
         } finally {
-            if (sinkPtr != 0) wasm._free(sinkPtr)
-            if (writeFuncPtr != 0) wasm.removeFunction(writeFuncPtr)
             releaseOpaque(sinkOpaqueId)
         }
     }
@@ -585,11 +623,18 @@ private class JsArchiveReader(
     override fun close() {
         if (!isClosed) {
             isClosed = true
-            val rawHandle = (
-                js(
-                "function(h) { return globalThis['BigInt'](h.toString()); }"
-            ) as (dynamic) -> dynamic
-            )(handle)
+            if (cachedSinkPtr != 0) {
+                wasm._free(cachedSinkPtr)
+                cachedSinkPtr = 0
+            }
+            if (cachedErrMsgPtr != 0) {
+                wasm._free(cachedErrMsgPtr)
+                cachedErrMsgPtr = 0
+            }
+            if (cachedWriteFuncPtr != 0) {
+                wasm.removeFunction(cachedWriteFuncPtr)
+                cachedWriteFuncPtr = 0
+            }
             wasm._kio_close_archive(rawHandle)
             wasm._free(sourcePtr)
             wasm.removeFunction(readFuncPtr)
