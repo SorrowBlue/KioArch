@@ -27,11 +27,18 @@ internal class JniEntries(
     val crc: LongArray
 )
 
-internal interface DirectExtractCallback {
-    fun onData(buffer: ByteBuffer)
+internal fun interface DirectExtractCallback {
+    fun onData(buffer: ByteBuffer, length: Int)
 }
 
 internal object KioArchJni {
+    @JvmStatic
+    fun readDirect(source: DirectSeekableSource, buffer: ByteBuffer, length: Int): Int {
+        buffer.clear()
+        buffer.limit(length)
+        return source.read(buffer)
+    }
+
     external fun openArchive(source: SeekableSource): Long
     external fun closeArchive(handle: Long): Unit
     external fun getEntries(handle: Long): JniEntries
@@ -39,6 +46,7 @@ internal object KioArchJni {
     external fun extractEntryDirect(
         handle: Long,
         index: Int,
+        directBuffer: ByteBuffer,
         callback: DirectExtractCallback
     ): Boolean
 }

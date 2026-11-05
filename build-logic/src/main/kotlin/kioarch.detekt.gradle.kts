@@ -30,9 +30,10 @@ tasks.withType<Detekt>().configureEach {
     }
 }
 
-rootProject.tasks.withType<ReportMergeTask> {
+rootProject.tasks.withType<ReportMergeTask>().configureEach {
+    mustRunAfter(tasks.withType<Detekt>())
     input.from(
         tasks.withType<Detekt>()
-            .map { it.reports.sarif.outputLocation }
+            .map { it.reports.sarif.outputLocation.get().asFile }
     )
 }

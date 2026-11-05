@@ -83,15 +83,16 @@ abstract class CompileWasmNativesTask @Inject constructor(
                 ""
             }
             val cmd = "${vcPrefix}$envPrefix" +
-                "emcmake cmake -S . -B \"$buildPath\" -G \"NMake Makefiles\""
+                "emcmake cmake -S . -B \"$buildPath\" " +
+                "-DCMAKE_BUILD_TYPE=Release -G \"NMake Makefiles\""
             listOf("cmd", "/c", cmd)
         } else {
             if (emsdkPath != null) {
                 val shCmd = ". \"$emsdkPath/emsdk_env.sh\" && " +
-                    "emcmake cmake -S . -B \"$buildPath\""
+                    "emcmake cmake -S . -B \"$buildPath\" -DCMAKE_BUILD_TYPE=Release"
                 listOf("sh", "-c", shCmd)
             } else {
-                listOf("emcmake", "cmake", "-S", ".", "-B", buildPath)
+                listOf("emcmake", "cmake", "-S", ".", "-B", buildPath, "-DCMAKE_BUILD_TYPE=Release")
             }
         }
 

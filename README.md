@@ -1,78 +1,36 @@
-# 📦 KioArch (Kotlin I/O Archive)
+# KioArch
 
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.21-purple.svg?style=flat&logo=kotlin)](https://kotlinlang.org)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple.svg?style=flat&logo=kotlin)](https://kotlinlang.org)
 [![Maven Central](https://img.shields.io/badge/Maven_Central-Publishing-orange.svg?style=flat)](https://search.maven.org)
-[![Platform](https://img.shields.io/badge/Platform-JVM_%7C_Android-blue.svg?style=flat)](#)
+[![Platform](https://img.shields.io/badge/Platform-JVM_%7C_Android_%7C_iOS_%7C_JS_%7C_WasmJs-blue.svg?style=flat)](#)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg?style=flat)](#)
 
-**KioArch** is a premium, high-performance Kotlin Multiplatform library for **transparent, filesystem-free archive extraction** (supporting both `.7z` and `.zip` archives). 
+**English** | [日本語](README.ja.md)
 
-Powered by embedded, highly-optimized, pure C native engines (**7-Zip Core** and **miniz**), KioArch offers an elegant KMP API wrapping standard Kotlin I/O (`kotlinx.io.Source` / `kotlinx.io.Sink`) with **zero temporary files** and **$O(1)$ constant memory overhead**.
+KioArch is a Kotlin Multiplatform (KMP) library for on-demand archive extraction without temporary files. Built on top of the C native engines from **7-Zip Core** and **miniz**, it streams decompressed chunks directly from `SeekableSource` into `kotlinx.io.Sink` while keeping heap memory overhead at $O(1)$ regardless of archive size.
 
----
+Native shared libraries (`.dll`, `.so`, `.dylib`) and WebAssembly binaries are built, packaged, and loaded automatically. Both `7zip` and `miniz` are maintained as unmodified Git submodules so upstream updates can be tracked cleanly.
 
-## ✨ Key Features
+## Supported Platforms & Formats
 
-*   **🛡️ Multi-Format Autoprobe**: Automatically inspects magic bytes (`7z` or `PK`) under the hood to invoke the correct C engine. You call the same unified API regardless of the archive format.
-*   **🚀 Filesystem-Free Extraction**: Streams data directly to and from memory-based buffers or custom inputs (e.g. Android Content Provider `Uri`s) without writing any temporary files to disk.
-*   **💧 Constant Memory Footprint**: Decompresses files block-by-block and pipes them directly into `kotlinx.io.Sink`, keeping memory usage constant ($O(1)$) even for multi-gigabyte archives.
-*   **🛠️ Zero-Config Native Bindings**: Automatically builds, packages, and loads native shared libraries (`.dll`, `.so`, `.dylib`) out of the box without requiring manual library installs.
-*   **🔌 100% Isolated Submodules**: Tracks native `7zip` and `miniz` codebases as untouched Git submodules, ensuring safe, continuous updates from upstream.
-
----
-
-## 💻 Supported Specifications
-
-KioArch provides high-performance, cross-platform archive processing across various platforms, architectures, and formats.
-
-### 1. Supported Platforms
-
-| Platform | Targets / Architectures | Note |
+| Platform | Targets / Architectures | Packaging & Runtime |
 | :--- | :--- | :--- |
-| **JVM (Desktop / Server)** | Windows (`x64`), macOS (`Universal`), Linux (`x64`) | Automatically extracts and loads embedded native libraries. |
-| **Android** | `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` | Fully compatible with 16 KB page size on Android 15+. Integrates with Jetpack App Startup. |
-| **iOS** | iOS Device (`arm64`), iOS Simulator (`x64`, `arm64`) | Distributed as an XCFramework with static C++ bindings. |
-| **JS (Node.js / Web)** | Kotlin/JS (Node.js / Browser) | Highly optimized Emscripten Wasm execution. |
-| **WasmJs (Node.js / Web)**| Kotlin/WasmJs (Node.js / Browser) | Highly optimized Emscripten Wasm execution. |
+| **JVM (Desktop / Server)** | Windows (`x64`), macOS (`Universal`), Linux (`x64`) | Extracts and loads embedded native libraries at runtime |
+| **Android** | `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64` | 16 KB page size ready (Android 15+), integrated with Jetpack App Startup |
+| **iOS** | iOS Device (`arm64`), iOS Simulator (`x64`, `arm64`) | Distributed as XCFramework / `.klib` with embedded static C++ libraries |
+| **JS / WasmJs** | Node.js, Browser | Powered by Emscripten WebAssembly |
 
-### 2. Supported Archive Formats (Autoprobe)
+KioArch identifies archive formats by inspecting magic bytes at the start of the stream rather than relying on file extensions. `.7z`, `.zip` (including ZIP-based containers such as `.apk`, `.jar`, `.aar`, and `.epub`), and `.tar.gz` / `.tgz` archives are all handled through the same reader API.
 
-KioArch inspects the **magic bytes** at the beginning of the file under the hood to automatically detect the format and select the correct extraction engine. 
+The library is strictly read-only and does not support creating or modifying archives. Supported decoders include `Deflate` and `Store` for ZIP (via miniz), `LZMA`, `LZMA2`, and `PPMd` with `BCJ` / `BCJ2` / `ARM` / `ARM64` / `IA64` / `Delta` filters for 7z (via 7-Zip Core), and streaming `Gzip (Deflate)` decompression for standard `ustar` Tar archives.
 
-Because it relies purely on binary magic bytes rather than file extensions, it seamlessly supports all of the following:
+ZIP archives created on Windows frequently store Japanese filenames in Shift_JIS (CP932) without setting the UTF-8 general purpose bit flag. KioArch validates filename byte sequences across all targets and automatically falls back from UTF-8 to Shift_JIS when invalid UTF-8 sequences are encountered.
 
-- **`.7z`**: 7-Zip Archive format
-- **`.zip`**: ZIP Archive format
-  - **ZIP-Compatible Formats**: Also seamlessly extracts any ZIP-based file formats like **`.apk`**, **`.jar`**, **`.aar`**, **`.epub`**, etc.
-- **`.tar.gz` / `.tgz`**: Gzip Compressed Tar Archive format
+## Usage
 
-### 3. Decode & Encode Capabilities
+### JVM
 
-- **Read-Only / Decompress Only**:
-  - The current version of KioArch is **Read-Only**. It is optimized strictly for fast and filesystem-free **decompression (decoding)**. Creating or writing archives (encoding) is not supported.
-- **Supported Compression Algorithms (Decoders)**:
-  - **ZIP (via miniz)**:
-    - `Deflate`
-    - `Store` (No compression)
-  - **7z (via 7-Zip Core)**:
-    - `LZMA`
-    - `LZMA2`
-    - `PPMd`
-    - CPU filters including `BCJ`, `BCJ2`, `ARM`, `ARM64`, `IA64`, and `Delta`
-  - **Tar/Gzip (via Custom Streams)**:
-    - `Gzip (Deflate)` (Automatically decompresses block-by-block and streams standard `ustar` Tar entries on the fly)
-
-### 4. Smart Encoding (Shift_JIS / UTF-8)
-
-When processing ZIP files created on Windows, Japanese file names are often encoded in **Shift_JIS (CP932)**. KioArch automatically detects the encoding and falls back to Shift_JIS when UTF-8 decoding fails. This avoids garbled file name issues (fully supported across JVM, Android, iOS, JS, and Wasm targets).
-
----
-
-## 🚀 Quick Start
-
-### 1. JVM (Java/Desktop) Usage
-
-Extract an archive from a standard JVM `File` directly into a `kotlinx.io` `Sink` or standard file output:
+Create a reader from a `java.io.File` or `java.nio.file.Path` and stream target entries into any `kotlinx.io.Sink`.
 
 ```kotlin
 import com.sorrowblue.kioarch.KioArch
@@ -81,16 +39,12 @@ import kotlinx.io.asSink
 import java.io.File
 import java.io.FileOutputStream
 
-val archiveFile = File("path/to/archive.7z") // or archive.zip
+val archiveFile = File("path/to/archive.7z")
 
 KioArch.createReader(archiveFile).use { reader ->
-    // Query catalog entries
     val entries = reader.getEntries()
-    println("Total entries: ${entries.size}")
-
-    // Extract a specific entry
     val targetEntry = entries.first { !it.isDirectory && it.name == "notes.txt" }
-    
+
     FileOutputStream(File("extracted_notes.txt")).use { outputStream ->
         val sink = outputStream.asSink()
         reader.extractEntry(targetEntry, sink)
@@ -99,30 +53,28 @@ KioArch.createReader(archiveFile).use { reader ->
 }
 ```
 
-### 2. Android Usage
+### Android
 
-Perform dynamic archive extraction from an Android content `Uri` (e.g., chosen via the System Picker) without temp files:
+Archives selected via the Storage Access Framework (`content://` `Uri`) can be read in place over a `FileChannel` without copying the file into cache storage. Implementing `DirectSeekableSource` enables zero-copy JNI reads through a direct `ByteBuffer`.
 
 ```kotlin
 import android.content.Context
 import android.net.Uri
+import com.sorrowblue.kioarch.DirectSeekableSource
 import com.sorrowblue.kioarch.KioArch
-import com.sorrowblue.kioarch.SeekableSource
 import kotlinx.io.Buffer
 import java.io.FileInputStream
-import java.io.IOException
 import java.nio.ByteBuffer
 
-// Define a custom SeekableSource wrapping an Android Uri
-class UriSeekableSource(context: Context, uri: Uri) : SeekableSource {
+class UriSeekableSource(context: Context, uri: Uri) : DirectSeekableSource {
     private val pfd = context.contentResolver.openFileDescriptor(uri, "r")!!
     private val fis = FileInputStream(pfd.fileDescriptor)
     private val channel = fis.channel
 
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        val byteBuffer = ByteBuffer.wrap(buffer, offset, length)
-        return channel.read(byteBuffer)
-    }
+    override fun read(byteBuffer: ByteBuffer): Int = channel.read(byteBuffer)
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+        channel.read(ByteBuffer.wrap(buffer, offset, length))
 
     override fun seek(position: Long) {
         channel.position(position)
@@ -138,30 +90,20 @@ class UriSeekableSource(context: Context, uri: Uri) : SeekableSource {
     }
 }
 
-// Extraction
 fun extractFromUri(context: Context, archiveUri: Uri) {
-    val source = UriSeekableSource(context, archiveUri)
-    
-    KioArch.createReader(source).use { reader ->
+    KioArch.createReader(UriSeekableSource(context, archiveUri)).use { reader ->
         val fileEntry = reader.getEntries().first { !it.isDirectory }
         val buffer = Buffer()
-        
-        // Decompresses directly to in-memory buffer
         reader.extractEntry(fileEntry, buffer)
-        println("Extracted ${fileEntry.name} data size: ${buffer.size} bytes")
     }
 }
 ```
 
-#### ⚙️ Native Library Loading Timing & Policy (Android)
+#### Native Library Loading on Android
 
-By default, `KioArch` utilizes **Jetpack App Startup** to automatically and safely preload the C++ native library (`libkioarch.so`) during application startup. This avoids runtime stutter (jank) when you perform archive operations for the first time.
+On Android, KioArch registers `KioArchInitializer` with Jetpack App Startup to preload `libkioarch.so` at app launch, avoiding disk I/O and linker pauses on the first archive operation.
 
-##### 1. Automatic Early Loading (Default)
-You do not need to perform any configuration. The library automatically registers a `KioArchInitializer` which loads the JNI library early on startup.
-
-##### 2. Disabling Automatic Loading
-If you wish to control the loading timing manually (e.g., to reduce application startup time or perform custom initialization), you can disable the automatic initializer by adding the following snippet to your app's `AndroidManifest.xml`:
+If you prefer to defer loading until a background initialization step, remove `KioArchInitializer` in your `AndroidManifest.xml` and call `KioArch.loadLibrary()` explicitly before opening an archive:
 
 ```xml
 <provider
@@ -176,118 +118,107 @@ If you wish to control the loading timing manually (e.g., to reduce application 
 </provider>
 ```
 
-##### 3. Manual Loading
-Once disabled, you can manually trigger the native library load at any time (e.g., in a background thread or a custom lazy loading routine) by calling:
-
 ```kotlin
 import com.sorrowblue.kioarch.KioArch
 
-// Load the native library manually
 KioArch.loadLibrary()
 ```
 
 > [!WARNING]
-> If you disable automatic loading and do not call `KioArch.loadLibrary()` manually before performing any archive operations, the library will fall back to **lazy load-on-demand**.
-> This will print a warning log to logcat (`KioArch: KioArch JNI library is being loaded lazily on-demand.`) as it may cause UI thread blocking and frame drops on older devices due to blocking disk I/O and linking overhead.
+> If automatic initialization is disabled and an archive operation is invoked before `KioArch.loadLibrary()`, KioArch falls back to on-demand loading and logs a warning (`KioArch JNI library is being loaded lazily on-demand.`). Calling this path on the main thread can cause frame drops while the native library is linked.
 
-### 3. JS / Wasm (Web/Node.js) Usage
+### JS / WasmJs
 
-For JS and Wasm (WebAssembly) targets, since WebAssembly loading is inherently asynchronous in web/Node.js environments, you must initialize `KioArch` with the modularized Emscripten module instance before calling any archive operations.
-
-#### Step 1: Preload and Initialize the Module
-
-```kotlin
-import com.sorrowblue.kioarch.KioArch
-
-// 1. Load the Wasm module asynchronously using your environment's loader or dynamic import
-// For example, in JS/WasmJs with Emscripten's modularized loader:
-val module = createKioArchModule() // Generated by Emscripten (e.g. from kioarch.js)
-
-// 2. Initialize KioArch with the loaded module
-KioArch.initialize(module)
-```
-
-#### Step 2: Transparent In-Memory Extraction
-
-After initialization, you can use KioArch normally. Because JS/Wasm targets are filesystem-free, you read files directly from byte arrays or memory streams:
+Because WebAssembly instantiation is asynchronous in browsers and Node.js, pass the loaded Emscripten module instance to `KioArch.initialize(module)` before creating a reader. Once initialized, archives can be read directly from in-memory `ByteArray` buffers.
 
 ```kotlin
 import com.sorrowblue.kioarch.KioArch
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 
-val archiveBytes: ByteArray = getArchiveData() // Fetch from network or read from memory
+// 1. Load the Emscripten Wasm module asynchronously and initialize KioArch
+val module = createKioArchModule()
+KioArch.initialize(module)
 
-// Create reader from in-memory ByteArray
+// 2. Extract from an in-memory ByteArray
+val archiveBytes: ByteArray = getArchiveData()
+
 KioArch.createReader(archiveBytes).use { reader ->
-    val entries = reader.getEntries()
-    println("Found ${entries.size} entries")
-
-    // Find first non-directory file entry
-    val targetEntry = entries.first { !it.isDirectory }
-
+    val targetEntry = reader.getEntries().first { !it.isDirectory }
     val buffer = Buffer()
     reader.extractEntry(targetEntry, buffer)
-    
-    val extractedBytes = buffer.readByteArray()
-    println("Extracted: ${extractedBytes.decodeToString()}")
+    val extractedText = buffer.readByteArray().decodeToString()
 }
 ```
 
----
+## Performance & Benchmarks
 
-## 🛠️ Build & Development
+On JVM and Android, KioArch transfers data across the JNI boundary using direct `ByteBuffer` addresses (`GetDirectBufferAddress`) via `DirectSeekableSource` and `extractEntryDirect`. Bypassing intermediate `byte[]` copies keeps JVM and ART heap allocations constant even when extracting multi-megabyte archives.
 
-KioArch features fully automated native compilation during Gradle builds. When you run tests or bundle artifacts, CMake runs automatically to build and package native shared libraries directly into your classpath resources.
+The benchmark suite compares **KioArch** against **[Apache Commons Compress](https://commons.apache.org/proper/commons-compress/)** (backed by `org.tukaani:xz` for LZMA2) and **[7-Zip-JBinding](https://sevenzipjbinding.sourceforge.net/)** ([`7-Zip-JBinding-4Android`](https://central.sonatype.com/artifact/com.sorrowblue.sevenzipjbinding/7-Zip-JBinding-4Android) on Android). Each benchmark operation extracts all 20 entries in an archive across three entry-size profiles:
 
-### Prerequisites
+| Profile | Per-File Size | File Count | Total Extracted per Op | Typical Workload |
+| :---: | :---: | :---: | :---: | :--- |
+| **`small`** | **4 KiB** (`4,096 B`) | **20** | **80 KiB** (`0.078 MiB`) | Config files, JSON metadata, small assets |
+| **`medium`** | **128 KiB** (`131,072 B`) | **20** | **2.50 MiB** | Comic pages (CBZ/7z), documents, app bundles |
+| **`large`** | **1 MiB** (`1,048,576 B`) | **20** | **20.0 MiB** | High-resolution media, database snapshots, large binaries |
 
-To build and compile the native libraries, the following environment setup is required based on your target platforms:
+### 1. Library Comparison: Heap Memory Footprint (JVM JMH `-prof gc`)
 
-#### 1. Common Requirements
-*   **JDK 21** or higher
-*   **CMake (3.22 or higher)**
+`Apache Commons Compress` allocates Java-heap dictionary buffers (~17 MiB/op for 7z LZMA2), while `7-Zip-JBinding` allocates a new `byte[]` on the JVM heap for every decompressed chunk passed to `ISequentialOutStream.write(byte[])`, scaling linearly ($O(N)$) with archive size. KioArch reuses a single native-backed direct `ByteBuffer` per reader and keeps heap allocations flat at **~5.0–5.5 KiB/op** ($O(1)$) across all formats and archive sizes:
 
-#### 2. JVM Native Compiler Toolchain (by OS)
-*   **Windows**:
-    *   **Visual Studio 2022** (or **Build Tools 2022**) with the **"Desktop development with C++"** workload.
-    *   Specifically, the following individual components are required:
-        *   `MSVC v143 - VS 2022 C++ x64/x86 build tools` (Latest)
-        *   `Windows 11 SDK` (or Windows 10 SDK)
-*   **macOS**: Xcode Command Line Tools (install via `xcode-select --install`)
-*   **Linux**: GCC/G++ or Clang (install via package manager, e.g., `sudo apt install build-essential`)
+![Heap Memory Allocated per Extraction (KiB/op)](docs/assets/benchmark-library-heap.svg)
 
-#### 3. Android Target
-*   **Android SDK & NDK**
-*   Configure `sdk.dir` and `ndk.dir` paths in your `local.properties` file.
+### 2. Library Comparison: Android Real-Device Throughput (`androidx.benchmark`)
 
-#### 4. JS / Wasm Target
-*   **Emscripten SDK (emsdk)**
-*   Configure the Emscripten installation path in your `local.properties` file:
-    ```properties
-    emsdk.dir=C:\\path\\to\\emsdk
-    ```
+Avoiding `byte[]` allocations in ART's Large Object Space (LOS) and decoding directly into direct `ByteBuffer` memory with hardware-accelerated CRC32 delivers top extraction throughput across all formats and sizes on Android devices:
 
-#### 5. iOS Target
-*   **macOS host** and **Xcode** installed.
+![Android Extraction Throughput by Library (MiB/s)](docs/assets/benchmark-library-throughput.svg)
 
-### Building and Testing
+### 3. Multiplatform Extraction Throughput (`KioArch`)
 
-Run the full clean and JVM test suite:
+Throughput of the `KioArch` extraction engine (`small` / `medium` / `large` profiles across `ZIP`, `7z`, and `TAR.GZ`) across supported Kotlin Multiplatform targets:
+
+![Multiplatform Extraction Throughput (MiB/s)](docs/assets/benchmark-platform-throughput.svg)
+
+### Running Benchmarks & Updating Charts
+
+Running `:benchmark:jvmGcBenchmark` or `:benchmark:connectedAndroidDeviceTest` automatically invokes `:benchmark:updateBenchmarkCharts`, which regenerates all three SVG charts in `docs/assets/` using [XChart](https://github.com/knowm/XChart):
+
 ```powershell
-# Set JAVA_HOME path and run
-$env:JAVA_HOME="C:\Program Files\Java\jdk-21" 
+# JVM benchmark with JMH GC profiler (updates benchmark-library-heap.svg & benchmark-platform-throughput.svg)
+.\gradlew.bat :benchmark:jvmGcBenchmark
+
+# Android real-device benchmark (updates benchmark-library-throughput.svg & benchmark-platform-throughput.svg)
+.\gradlew.bat :benchmark:connectedAndroidDeviceTest
+
+# Multiplatform smoke benchmarks (JS / WasmJs / iOS)
+.\gradlew.bat :benchmark:jsSmokeBenchmark :benchmark:wasmJsSmokeBenchmark
+
+# Regenerate SVG charts from existing benchmark JSON reports
+.\gradlew.bat :benchmark:updateBenchmarkCharts
+```
+
+## Build & Development
+
+Gradle automatically runs CMake during the build to compile and package native binaries for the active target platforms.
+
+Building from source requires **JDK 21+** and **CMake 3.22+**, along with the toolchain for your target platforms:
+
+- **JVM Native**: Visual Studio 2022 (or Build Tools 2022) with the "Desktop development with C++" workload (`MSVC v143` and `Windows 10/11 SDK`) on Windows; Xcode Command Line Tools (`xcode-select --install`) on macOS; GCC/G++ or Clang (`build-essential`) on Linux.
+- **Android**: Android SDK and NDK configured via `sdk.dir` and `ndk.dir` in `local.properties`.
+- **JS / WasmJs**: Emscripten SDK (`emsdk`) configured via `emsdk.dir=C:\\path\\to\\emsdk` in `local.properties`.
+- **iOS**: macOS host with Xcode installed.
+
+```powershell
+# Build JVM natives and run the JVM test suite
 .\gradlew.bat :kioarch:clean :kioarch:jvmTest
+
+# Cross-compile Android native ABIs (armeabi-v7a, arm64-v8a, x86, x86_64)
+.\gradlew.bat :kioarch:assemble
 ```
 
-Cross-compile all Android native ABIs (`armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64`):
-```powershell
-.\gradlew.bat :kioarch:assembleDebug
-```
-
----
-
-## 📄 License
+## License
 
 ```text
 Copyright 2026 SorrowBlue

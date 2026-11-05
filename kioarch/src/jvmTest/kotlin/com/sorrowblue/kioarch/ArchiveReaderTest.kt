@@ -1,12 +1,19 @@
 package com.sorrowblue.kioarch
 
+import com.sun.management.ThreadMXBean
 import java.io.File
 import java.io.FileOutputStream
+import java.lang.management.ManagementFactory
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlin.concurrent.thread
+import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.io.Buffer
+import kotlinx.io.RawSink
 import kotlinx.io.asSink
 import kotlinx.io.buffered
 import kotlinx.io.readByteArray
@@ -145,6 +152,91 @@ class ArchiveReaderTest {
             }
         } finally {
             source.close()
+        }
+    }
+
+    @Test
+    fun testPathSeekableSourceDirectExtraction() {
+        val zipFile = File(System.getProperty("TEST_ZIP_PATH"))
+        val pathSource = PathSeekableSource(zipFile.toPath())
+        try {
+            @Suppress("USELESS_IS_CHECK")
+            assertTrue(
+                pathSource is DirectSeekableSource,
+                "PathSeekableSource should implement DirectSeekableSource"
+            )
+            KioArch.createReader(pathSource).use { reader ->
+                val entries = reader.getEntries()
+                val fileEntry = entries.first { !it.isDirectory && it.size > 0 }
+                val directBuffer = Buffer()
+                reader.extractEntry(fileEntry, directBuffer)
+                val directBytes = directBuffer.readByteArray()
+
+                SeekableArchiveReader(
+                    FileSeekableSource(zipFile),
+                    useDirectOutput = false
+                ).use { stdReader ->
+                    val stdBuffer = Buffer()
+                    stdReader.extractEntry(fileEntry, stdBuffer)
+                    assertContentEquals(stdBuffer.readByteArray(), directBytes)
+                }
+            }
+        } finally {
+            pathSource.close()
+        }
+    }
+
+    @Test
+    fun testZeroCopyReducesHeapAllocations() {
+        val threadBean = ManagementFactory.getThreadMXBean() as? ThreadMXBean ?: return
+        if (!threadBean.isThreadAllocatedMemorySupported) return
+        threadBean.isThreadAllocatedMemoryEnabled = true
+
+        val tempZip = File.createTempFile("kioarch_alloc_test", ".zip")
+        tempZip.deleteOnExit()
+        ZipOutputStream(FileOutputStream(tempZip)).use { zos ->
+            zos.putNextEntry(ZipEntry("payload.bin"))
+            zos.write(Random(42).nextBytes(2 * 1024 * 1024))
+            zos.closeEntry()
+        }
+
+        val discardingSink = object : RawSink {
+            override fun write(source: Buffer, byteCount: Long) = source.skip(byteCount)
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+
+        fun measureAllocatedBytes(useDirect: Boolean): Long {
+            val source = if (useDirect) {
+                FileSeekableSource(tempZip)
+            } else {
+                object : SeekableSource by FileSeekableSource(tempZip) {}
+            }
+            return SeekableArchiveReader(source, useDirectOutput = useDirect).use { reader ->
+                val entry = reader.getEntries().first()
+                val sink = discardingSink.buffered()
+                repeat(3) {
+                    reader.extractEntry(entry, sink)
+                    sink.flush()
+                }
+                val before = threadBean.currentThreadAllocatedBytes
+                repeat(10) {
+                    reader.extractEntry(entry, sink)
+                    sink.flush()
+                }
+                threadBean.currentThreadAllocatedBytes - before
+            }
+        }
+
+        try {
+            val directAllocated = measureAllocatedBytes(useDirect = true)
+            val stdAllocated = measureAllocatedBytes(useDirect = false)
+            assertTrue(
+                directAllocated < stdAllocated,
+                "Expected Direct ByteBuffer ($directAllocated B) < ByteArray ($stdAllocated B)"
+            )
+        } finally {
+            tempZip.delete()
         }
     }
 

@@ -31,6 +31,11 @@
 
 #define kInputBufSize ((size_t)1 << 18) // 256KB input buffer for LookToRead2
 
+mz_ulong mz_crc32(mz_ulong crc, const mz_uint8 *ptr, size_t buf_len) {
+    if (!ptr) return MZ_CRC32_INIT;
+    return (mz_ulong)(CrcUpdate((UInt32)crc ^ CRC_INIT_VAL, ptr, buf_len) ^ CRC_INIT_VAL);
+}
+
 static void throw_archive_exception(JNIEnv *env, const char *class_path, const char *format, ...) {
     char message[512];
     va_list args;
@@ -140,6 +145,15 @@ typedef struct {
     jbyteArray tempBuffer;
     jint tempBufferSize;
     jmethodID readDirectMethod;
+    jclass jniClass;
+    jmethodID readDirectBridgeMethod;
+    jobject directBuffer;
+    void *directBufferBacking;
+    void *directBufferAddr;
+    jlong directBufferCapacity;
+    jlong sourcePos;
+    jlong cacheOffset;
+    size_t cacheLen;
 } JniInStream;
 
 typedef enum {
@@ -188,11 +202,17 @@ typedef struct {
 } TarGzEntry;
 
 typedef struct {
-    mz_stream stream;
+    tinfl_decompressor decomp;
+    unsigned char dict[TINFL_LZ_DICT_SIZE];
+    size_t dict_ofs;
+    size_t dict_avail;
+    tinfl_status last_status;
+    const unsigned char *next_in;
+    size_t avail_in;
     int is_init;
     jlong current_source_offset;
     jlong total_decompressed;
-    unsigned char in_buf[16384];
+    unsigned char in_buf[65536];
 } GzipDecoder;
 
 // Unified ArchiveHandle structure keeping track of open archive session (7z, ZIP, or tar.gz)
@@ -206,14 +226,21 @@ typedef struct {
     ISzAlloc alloc;
     ISzAlloc allocTemp;
     int isDbExInit;
+    UInt32 sevenZipBlockIndex;
+    Byte *sevenZipOutBuffer;
+    size_t sevenZipOutBufferSize;
 
     // miniz ZIP Context
     mz_zip_archive zipArchive;
     int isZipInit;
+    tinfl_decompressor zipInflator;
 
-    // .tar.gz Context
+    // .tar.gz / .tar.bz2 Context
     TarGzEntry *tarGzEntries;
     int tarGzCount;
+    jlong tarGzRawDeflateStart;
+    GzipDecoder tarGzDecoder;
+    Bzip2Decoder tarBz2Decoder;
 } ArchiveHandle;
 
 // Context structure passed to miniz extraction callback
@@ -222,6 +249,32 @@ typedef struct {
     jobject kotlinSink;
     jmethodID writeMethod;
 } ZipExtractContext;
+
+// Safely releases all JNI global references and backing memory held by JniInStream
+static void cleanup_in_stream(JNIEnv *env, JniInStream *stream) {
+    if (stream->kotlinSource != NULL) {
+        (*env)->DeleteGlobalRef(env, stream->kotlinSource);
+        stream->kotlinSource = NULL;
+    }
+    if (stream->jniClass != NULL) {
+        (*env)->DeleteGlobalRef(env, stream->jniClass);
+        stream->jniClass = NULL;
+    }
+    if (stream->tempBuffer != NULL) {
+        (*env)->DeleteGlobalRef(env, stream->tempBuffer);
+        stream->tempBuffer = NULL;
+    }
+    if (stream->directBuffer != NULL) {
+        (*env)->DeleteGlobalRef(env, stream->directBuffer);
+        stream->directBuffer = NULL;
+    }
+    if (stream->directBufferBacking != NULL) {
+        free(stream->directBufferBacking);
+        stream->directBufferBacking = NULL;
+        stream->directBufferAddr = NULL;
+        stream->directBufferCapacity = 0;
+    }
+}
 
 // ISeekInStream.Read callback implementation calling SeekableSource.read()
 static SRes JniInStream_Read(ISeekInStreamPtr p, void *buf, size_t *size) {
@@ -235,17 +288,47 @@ static SRes JniInStream_Read(ISeekInStreamPtr p, void *buf, size_t *size) {
 
     // Direct ByteBuffer Path
     if (stream->readDirectMethod != NULL) {
+        if (stream->directBuffer != NULL && stream->directBufferAddr != NULL &&
+            stream->readDirectBridgeMethod != NULL &&
+            originalSize <= (size_t)stream->directBufferCapacity) {
+            readBytes = (*env)->CallStaticIntMethod(
+                env, stream->jniClass, stream->readDirectBridgeMethod,
+                stream->kotlinSource, stream->directBuffer, (jint)originalSize
+            );
+            if ((*env)->ExceptionCheck(env)) {
+                return SZ_ERROR_FAIL;
+            }
+            if (readBytes <= 0) {
+                *size = 0;
+                stream->sourcePos = -1;
+            } else {
+                if (buf != stream->directBufferAddr) {
+                    memcpy(buf, stream->directBufferAddr, (size_t)readBytes);
+                }
+                *size = (size_t)readBytes;
+                if (stream->sourcePos >= 0) {
+                    stream->sourcePos += readBytes;
+                }
+            }
+            return SZ_OK;
+        }
+
         jobject directBuffer = (*env)->NewDirectByteBuffer(env, buf, originalSize);
         if (directBuffer != NULL) {
             readBytes = (*env)->CallIntMethod(env, stream->kotlinSource, stream->readDirectMethod, directBuffer);
             (*env)->DeleteLocalRef(env, directBuffer);
             if ((*env)->ExceptionCheck(env)) {
+                stream->sourcePos = -1;
                 return SZ_ERROR_FAIL;
             }
             if (readBytes < 0) {
                 *size = 0;
+                stream->sourcePos = -1;
             } else {
                 *size = (size_t)readBytes;
+                if (stream->sourcePos >= 0) {
+                    stream->sourcePos += readBytes;
+                }
             }
             return SZ_OK;
         }
@@ -255,10 +338,20 @@ static SRes JniInStream_Read(ISeekInStreamPtr p, void *buf, size_t *size) {
     if (stream->tempBuffer == NULL || stream->tempBufferSize < (jint)originalSize) {
         if (stream->tempBuffer != NULL) {
             (*env)->DeleteGlobalRef(env, stream->tempBuffer);
+            stream->tempBuffer = NULL;
+            stream->tempBufferSize = 0;
         }
         localArray = (*env)->NewByteArray(env, (jsize)originalSize);
+        if (localArray == NULL) {
+            *size = 0;
+            return SZ_ERROR_MEM;
+        }
         stream->tempBuffer = (*env)->NewGlobalRef(env, localArray);
         (*env)->DeleteLocalRef(env, localArray);
+        if (stream->tempBuffer == NULL) {
+            *size = 0;
+            return SZ_ERROR_MEM;
+        }
         stream->tempBufferSize = (jint)originalSize;
     }
 
@@ -266,17 +359,22 @@ static SRes JniInStream_Read(ISeekInStreamPtr p, void *buf, size_t *size) {
     readBytes = (*env)->CallIntMethod(env, stream->kotlinSource, stream->readMethod,
                                            stream->tempBuffer, 0, (jint)originalSize);
     if ((*env)->ExceptionCheck(env)) {
+        stream->sourcePos = -1;
         return SZ_ERROR_FAIL;
     }
 
     if (readBytes < 0) {
         *size = 0;
+        stream->sourcePos = -1;
         return SZ_OK;
     }
 
     // Copy read bytes from JVM byte array to native C buffer
     (*env)->GetByteArrayRegion(env, stream->tempBuffer, 0, readBytes, (jbyte *)buf);
     *size = (size_t)readBytes;
+    if (stream->sourcePos >= 0) {
+        stream->sourcePos += readBytes;
+    }
     return SZ_OK;
 }
 
@@ -287,7 +385,9 @@ static SRes JniInStream_Seek(ISeekInStreamPtr p, Int64 *pos, ESzSeek origin) {
     Int64 newPos = *pos;
 
     if (origin == SZ_SEEK_CUR) {
-        jlong cur = (*env)->CallLongMethod(env, stream->kotlinSource, stream->positionMethod);
+        jlong cur = (stream->sourcePos >= 0)
+            ? stream->sourcePos
+            : (*env)->CallLongMethod(env, stream->kotlinSource, stream->positionMethod);
         if ((*env)->ExceptionCheck(env)) return SZ_ERROR_FAIL;
         newPos += cur;
     } else if (origin == SZ_SEEK_END) {
@@ -296,14 +396,95 @@ static SRes JniInStream_Seek(ISeekInStreamPtr p, Int64 *pos, ESzSeek origin) {
         newPos += len;
     }
 
-    // Call SeekableSource.seek(position)
-    (*env)->CallVoidMethod(env, stream->kotlinSource, stream->seekMethod, (jlong)newPos);
-    if ((*env)->ExceptionCheck(env)) {
-        return SZ_ERROR_FAIL;
+    if (stream->sourcePos != (jlong)newPos) {
+        // Call SeekableSource.seek(position)
+        (*env)->CallVoidMethod(env, stream->kotlinSource, stream->seekMethod, (jlong)newPos);
+        if ((*env)->ExceptionCheck(env)) {
+            stream->sourcePos = -1;
+            return SZ_ERROR_FAIL;
+        }
+        stream->sourcePos = (jlong)newPos;
     }
 
     *pos = newPos;
     return SZ_OK;
+}
+
+static int read_from_source(JNIEnv *env, ArchiveHandle *archive, jlong offset, void *buf, size_t size) {
+    JniInStream *stream = &archive->inStream;
+    if (stream->sourcePos != offset) {
+        (*env)->CallVoidMethod(env, stream->kotlinSource, stream->seekMethod, (jlong)offset);
+        if ((*env)->ExceptionCheck(env)) {
+            stream->sourcePos = -1;
+            return -1;
+        }
+        stream->sourcePos = offset;
+    }
+
+    // Direct ByteBuffer Path
+    if (stream->readDirectMethod != NULL) {
+        if (stream->directBuffer != NULL && stream->directBufferAddr != NULL &&
+            stream->readDirectBridgeMethod != NULL &&
+            size <= (size_t)stream->directBufferCapacity) {
+            jint readBytes = (*env)->CallStaticIntMethod(
+                env, stream->jniClass, stream->readDirectBridgeMethod,
+                stream->kotlinSource, stream->directBuffer, (jint)size
+            );
+            if ((*env)->ExceptionCheck(env)) {
+                stream->sourcePos = -1;
+                return -1;
+            }
+            if (readBytes > 0) {
+                stream->sourcePos = offset + readBytes;
+                if (buf != stream->directBufferAddr) {
+                    memcpy(buf, stream->directBufferAddr, (size_t)readBytes);
+                }
+            } else {
+                stream->sourcePos = -1;
+            }
+            return readBytes;
+        }
+
+        jobject directBuffer = (*env)->NewDirectByteBuffer(env, buf, size);
+        if (directBuffer != NULL) {
+            jint readBytes = (*env)->CallIntMethod(env, stream->kotlinSource, stream->readDirectMethod, directBuffer);
+            (*env)->DeleteLocalRef(env, directBuffer);
+            if ((*env)->ExceptionCheck(env)) {
+                stream->sourcePos = -1;
+                return -1;
+            }
+            if (readBytes > 0) {
+                stream->sourcePos = offset + readBytes;
+            } else {
+                stream->sourcePos = -1;
+            }
+            return readBytes;
+        }
+    }
+
+    if (stream->tempBuffer == NULL || stream->tempBufferSize < (jint)size) {
+        if (stream->tempBuffer != NULL) {
+            (*env)->DeleteGlobalRef(env, stream->tempBuffer);
+        }
+        jbyteArray localArray = (*env)->NewByteArray(env, (jsize)size);
+        if (localArray == NULL) return -1;
+        stream->tempBuffer = (*env)->NewGlobalRef(env, localArray);
+        (*env)->DeleteLocalRef(env, localArray);
+        stream->tempBufferSize = (jint)size;
+    }
+    jint readBytes = (*env)->CallIntMethod(env, stream->kotlinSource, stream->readMethod,
+                                           stream->tempBuffer, 0, (jint)size);
+    if ((*env)->ExceptionCheck(env)) {
+        stream->sourcePos = -1;
+        return -1;
+    }
+    if (readBytes <= 0) {
+        stream->sourcePos = -1;
+        return readBytes;
+    }
+    stream->sourcePos = offset + readBytes;
+    (*env)->GetByteArrayRegion(env, stream->tempBuffer, 0, readBytes, (jbyte *)buf);
+    return readBytes;
 }
 
 // Custom read callback for miniz wrapping SeekableSource
@@ -314,56 +495,40 @@ static size_t Miniz_Read_Callback(void *pOpaque, mz_uint64 file_ofs, void *pBuf,
 
     if (n == 0) return 0;
 
-    // Refresh thread-bound JNIEnv in stream struct
-    stream->env = env;
+    if (stream->directBufferAddr != NULL && stream->directBufferCapacity > 0) {
+        unsigned char *dst = (unsigned char *)pBuf;
+        jlong cur_ofs = (jlong)file_ofs;
+        size_t remaining = n;
+        size_t total_copied = 0;
 
-    // Call SeekableSource.seek(file_ofs)
-    (*env)->CallVoidMethod(env, stream->kotlinSource, stream->seekMethod, (jlong)file_ofs);
-    if ((*env)->ExceptionCheck(env)) {
-        return 0;
-    }
-
-    // Direct ByteBuffer Path
-    if (stream->readDirectMethod != NULL) {
-        jobject directBuffer = (*env)->NewDirectByteBuffer(env, pBuf, n);
-        if (directBuffer != NULL) {
-            jint readBytes = (*env)->CallIntMethod(env, stream->kotlinSource, stream->readDirectMethod, directBuffer);
-            (*env)->DeleteLocalRef(env, directBuffer);
-            if ((*env)->ExceptionCheck(env)) {
-                return 0;
+        while (remaining > 0) {
+            if (stream->cacheOffset >= 0 &&
+                cur_ofs >= stream->cacheOffset &&
+                cur_ofs < stream->cacheOffset + (jlong)stream->cacheLen) {
+                size_t cache_avail = (size_t)((stream->cacheOffset + (jlong)stream->cacheLen) - cur_ofs);
+                size_t to_copy = (remaining < cache_avail) ? remaining : cache_avail;
+                memcpy(dst, (const unsigned char *)stream->directBufferAddr + (cur_ofs - stream->cacheOffset), to_copy);
+                dst += to_copy;
+                cur_ofs += (jlong)to_copy;
+                remaining -= to_copy;
+                total_copied += to_copy;
+                continue;
             }
-            return (readBytes <= 0) ? 0 : (size_t)readBytes;
+
+            int r = read_from_source(env, archive, cur_ofs, stream->directBufferAddr, (size_t)stream->directBufferCapacity);
+            if (r <= 0) {
+                stream->cacheOffset = -1;
+                stream->cacheLen = 0;
+                break;
+            }
+            stream->cacheOffset = cur_ofs;
+            stream->cacheLen = (size_t)r;
         }
+        return total_copied;
     }
 
-    // Lazily allocate/resize JNI temporary byte array to reuse across reads
-    if (stream->tempBuffer == NULL || stream->tempBufferSize < (jint)n) {
-        if (stream->tempBuffer != NULL) {
-            (*env)->DeleteGlobalRef(env, stream->tempBuffer);
-        }
-        jbyteArray localArray = (*env)->NewByteArray(env, (jsize)n);
-        if (localArray == NULL) {
-            return 0;
-        }
-        stream->tempBuffer = (*env)->NewGlobalRef(env, localArray);
-        (*env)->DeleteLocalRef(env, localArray);
-        stream->tempBufferSize = (jint)n;
-    }
-
-    // Call SeekableSource.read(buffer, offset, length)
-    jint readBytes = (*env)->CallIntMethod(env, stream->kotlinSource, stream->readMethod,
-                                           stream->tempBuffer, 0, (jint)n);
-    if ((*env)->ExceptionCheck(env)) {
-        return 0;
-    }
-
-    if (readBytes <= 0) {
-        return 0;
-    }
-
-    // Copy read bytes from JVM byte array to native C buffer
-    (*env)->GetByteArrayRegion(env, stream->tempBuffer, 0, readBytes, (jbyte *)pBuf);
-    return (size_t)readBytes;
+    int readBytes = read_from_source(env, archive, (jlong)file_ofs, pBuf, n);
+    return (readBytes <= 0) ? 0 : (size_t)readBytes;
 }
 
 // Custom write callback for miniz streaming decompressed chunk into kotlinx.io.Sink
@@ -392,14 +557,14 @@ static size_t Miniz_Write_Callback(void *pOpaque, mz_uint64 file_ofs, const void
 }
 
 static SRes init_gzip_decoder(JNIEnv *env, ArchiveHandle *archive, GzipDecoder *decoder) {
-    memset(decoder, 0, sizeof(GzipDecoder));
-    decoder->stream.zalloc = NULL;
-    decoder->stream.zfree = NULL;
-    decoder->stream.opaque = NULL;
-    int status = mz_inflateInit2(&decoder->stream, -15);
-    if (status != MZ_OK) {
-        return SZ_ERROR_MEM;
-    }
+    (void)env;
+    (void)archive;
+    tinfl_init(&decoder->decomp);
+    decoder->dict_ofs = 0;
+    decoder->dict_avail = 0;
+    decoder->last_status = TINFL_STATUS_NEEDS_MORE_INPUT;
+    decoder->next_in = NULL;
+    decoder->avail_in = 0;
     decoder->is_init = 1;
     decoder->current_source_offset = 0;
     decoder->total_decompressed = 0;
@@ -407,45 +572,7 @@ static SRes init_gzip_decoder(JNIEnv *env, ArchiveHandle *archive, GzipDecoder *
 }
 
 static void free_gzip_decoder(GzipDecoder *decoder) {
-    if (decoder->is_init) {
-        mz_inflateEnd(&decoder->stream);
-        decoder->is_init = 0;
-    }
-}
-
-static int read_from_source(JNIEnv *env, ArchiveHandle *archive, jlong offset, void *buf, size_t size) {
-    (*env)->CallVoidMethod(env, archive->inStream.kotlinSource, archive->inStream.seekMethod, (jlong)offset);
-    if ((*env)->ExceptionCheck(env)) return -1;
-
-    // Direct ByteBuffer Path
-    if (archive->inStream.readDirectMethod != NULL) {
-        jobject directBuffer = (*env)->NewDirectByteBuffer(env, buf, size);
-        if (directBuffer != NULL) {
-            jint readBytes = (*env)->CallIntMethod(env, archive->inStream.kotlinSource, archive->inStream.readDirectMethod, directBuffer);
-            (*env)->DeleteLocalRef(env, directBuffer);
-            if ((*env)->ExceptionCheck(env)) {
-                return -1;
-            }
-            return readBytes;
-        }
-    }
-
-    if (archive->inStream.tempBuffer == NULL || archive->inStream.tempBufferSize < (jint)size) {
-        if (archive->inStream.tempBuffer != NULL) {
-            (*env)->DeleteGlobalRef(env, archive->inStream.tempBuffer);
-        }
-        jbyteArray localArray = (*env)->NewByteArray(env, (jsize)size);
-        if (localArray == NULL) return -1;
-        archive->inStream.tempBuffer = (*env)->NewGlobalRef(env, localArray);
-        (*env)->DeleteLocalRef(env, localArray);
-        archive->inStream.tempBufferSize = (jint)size;
-    }
-    jint readBytes = (*env)->CallIntMethod(env, archive->inStream.kotlinSource, archive->inStream.readMethod,
-                                           archive->inStream.tempBuffer, 0, (jint)size);
-    if ((*env)->ExceptionCheck(env)) return -1;
-    if (readBytes <= 0) return readBytes;
-    (*env)->GetByteArrayRegion(env, archive->inStream.tempBuffer, 0, readBytes, (jbyte *)buf);
-    return readBytes;
+    decoder->is_init = 0;
 }
 
 static jlong skip_gzip_header(JNIEnv *env, ArchiveHandle *archive, jlong start_offset) {
@@ -490,27 +617,51 @@ static SRes read_decompressed_bytes(JNIEnv *env, ArchiveHandle *archive, GzipDec
     size_t written = 0;
     *processed = 0;
     while (written < out_len) {
-        if (decoder->stream.avail_in == 0) {
+        if (decoder->dict_avail > 0) {
+            size_t n = (decoder->dict_avail < (out_len - written)) ? decoder->dict_avail : (out_len - written);
+            memcpy((unsigned char *)out_buf + written, decoder->dict + decoder->dict_ofs, n);
+            written += n;
+            decoder->total_decompressed += (jlong)n;
+            decoder->dict_avail -= n;
+            decoder->dict_ofs = (decoder->dict_ofs + n) & (TINFL_LZ_DICT_SIZE - 1);
+            continue;
+        }
+        if (decoder->last_status == TINFL_STATUS_DONE) {
+            break;
+        }
+        if (decoder->avail_in == 0 && decoder->last_status == TINFL_STATUS_NEEDS_MORE_INPUT) {
             jlong src_offset = raw_deflate_start + decoder->current_source_offset;
-            int r = read_from_source(env, archive, src_offset, decoder->in_buf, sizeof(decoder->in_buf));
+            unsigned char *inBuf = (archive->inStream.directBufferAddr != NULL)
+                ? (unsigned char *)archive->inStream.directBufferAddr
+                : decoder->in_buf;
+            size_t inCap = (archive->inStream.directBufferAddr != NULL)
+                ? (size_t)archive->inStream.directBufferCapacity
+                : sizeof(decoder->in_buf);
+            int r = read_from_source(env, archive, src_offset, inBuf, inCap);
             if (r < 0) return SZ_ERROR_READ;
             if (r == 0) {
                 break;
             }
-            decoder->stream.next_in = decoder->in_buf;
-            decoder->stream.avail_in = (unsigned int)r;
+            decoder->next_in = inBuf;
+            decoder->avail_in = (size_t)r;
             decoder->current_source_offset += r;
         }
-        decoder->stream.next_out = (unsigned char *)out_buf + written;
-        decoder->stream.avail_out = (unsigned int)(out_len - written);
-        int status = mz_inflate(&decoder->stream, Z_NO_FLUSH);
-        size_t decompressed_this_time = (out_len - written) - decoder->stream.avail_out;
-        written += decompressed_this_time;
-        decoder->total_decompressed += decompressed_this_time;
-        if (status == Z_STREAM_END) {
-            break;
-        }
-        if (status != Z_OK && status != Z_BUF_ERROR) {
+        size_t in_bytes = decoder->avail_in;
+        size_t out_bytes = TINFL_LZ_DICT_SIZE - decoder->dict_ofs;
+        tinfl_status status = tinfl_decompress(
+            &decoder->decomp,
+            decoder->next_in,
+            &in_bytes,
+            decoder->dict,
+            decoder->dict + decoder->dict_ofs,
+            &out_bytes,
+            TINFL_FLAG_HAS_MORE_INPUT
+        );
+        decoder->last_status = status;
+        decoder->next_in += in_bytes;
+        decoder->avail_in -= in_bytes;
+        decoder->dict_avail = out_bytes;
+        if (status < 0) {
             return SZ_ERROR_DATA;
         }
     }
@@ -519,22 +670,58 @@ static SRes read_decompressed_bytes(JNIEnv *env, ArchiveHandle *archive, GzipDec
 }
 
 static SRes skip_decompressed_bytes(JNIEnv *env, ArchiveHandle *archive, GzipDecoder *decoder, size_t skip_len, jlong raw_deflate_start) {
-    unsigned char dummy[4096];
     size_t remaining = skip_len;
     while (remaining > 0) {
-        size_t to_read = (remaining < sizeof(dummy)) ? remaining : sizeof(dummy);
-        size_t processed = 0;
-        SRes res = read_decompressed_bytes(env, archive, decoder, dummy, to_read, &processed, raw_deflate_start);
-        if (res != SZ_OK) return res;
-        if (processed == 0) return SZ_ERROR_DATA;
-        remaining -= processed;
+        if (decoder->dict_avail > 0) {
+            size_t n = (decoder->dict_avail < remaining) ? decoder->dict_avail : remaining;
+            remaining -= n;
+            decoder->total_decompressed += (jlong)n;
+            decoder->dict_avail -= n;
+            decoder->dict_ofs = (decoder->dict_ofs + n) & (TINFL_LZ_DICT_SIZE - 1);
+            continue;
+        }
+        if (decoder->last_status == TINFL_STATUS_DONE) {
+            return SZ_ERROR_DATA;
+        }
+        if (decoder->avail_in == 0 && decoder->last_status == TINFL_STATUS_NEEDS_MORE_INPUT) {
+            jlong src_offset = raw_deflate_start + decoder->current_source_offset;
+            unsigned char *inBuf = (archive->inStream.directBufferAddr != NULL)
+                ? (unsigned char *)archive->inStream.directBufferAddr
+                : decoder->in_buf;
+            size_t inCap = (archive->inStream.directBufferAddr != NULL)
+                ? (size_t)archive->inStream.directBufferCapacity
+                : sizeof(decoder->in_buf);
+            int r = read_from_source(env, archive, src_offset, inBuf, inCap);
+            if (r <= 0) return (r < 0) ? SZ_ERROR_READ : SZ_ERROR_DATA;
+            decoder->next_in = inBuf;
+            decoder->avail_in = (size_t)r;
+            decoder->current_source_offset += r;
+        }
+        size_t in_bytes = decoder->avail_in;
+        size_t out_bytes = TINFL_LZ_DICT_SIZE - decoder->dict_ofs;
+        tinfl_status status = tinfl_decompress(
+            &decoder->decomp,
+            decoder->next_in,
+            &in_bytes,
+            decoder->dict,
+            decoder->dict + decoder->dict_ofs,
+            &out_bytes,
+            TINFL_FLAG_HAS_MORE_INPUT
+        );
+        decoder->last_status = status;
+        decoder->next_in += in_bytes;
+        decoder->avail_in -= in_bytes;
+        decoder->dict_avail = out_bytes;
+        if (status < 0) {
+            return SZ_ERROR_DATA;
+        }
     }
     return SZ_OK;
 }
 
 static SRes scan_tar_gz_entries(JNIEnv *env, ArchiveHandle *archive, jlong raw_deflate_start) {
-    GzipDecoder decoder;
-    SRes res = init_gzip_decoder(env, archive, &decoder);
+    GzipDecoder *decoder = &archive->tarGzDecoder;
+    SRes res = init_gzip_decoder(env, archive, decoder);
     if (res != SZ_OK) return res;
     int capacity = 16;
     archive->tarGzEntries = (TarGzEntry *)malloc(capacity * sizeof(TarGzEntry));
@@ -543,8 +730,8 @@ static SRes scan_tar_gz_entries(JNIEnv *env, ArchiveHandle *archive, jlong raw_d
     int consecutive_zero_blocks = 0;
     while (1) {
         size_t processed = 0;
-        jlong header_offset = decoder.total_decompressed;
-        res = read_decompressed_bytes(env, archive, &decoder, &header, 512, &processed, raw_deflate_start);
+        jlong header_offset = decoder->total_decompressed;
+        res = read_decompressed_bytes(env, archive, decoder, &header, 512, &processed, raw_deflate_start);
         if (res != SZ_OK) goto error;
         if (processed < 512) {
             break;
@@ -597,16 +784,16 @@ static SRes scan_tar_gz_entries(JNIEnv *env, ArchiveHandle *archive, jlong raw_d
         entry->size = file_size;
         entry->is_dir = is_dir;
         entry->header_offset = header_offset;
-        entry->data_offset = decoder.total_decompressed;
+        entry->data_offset = decoder->total_decompressed;
         archive->tarGzCount++;
         jlong skip_size = (file_size + 511) & ~511;
-        res = skip_decompressed_bytes(env, archive, &decoder, (size_t)skip_size, raw_deflate_start);
+        res = skip_decompressed_bytes(env, archive, decoder, (size_t)skip_size, raw_deflate_start);
         if (res != SZ_OK) goto error;
     }
-    free_gzip_decoder(&decoder);
+    free_gzip_decoder(decoder);
     return SZ_OK;
 error:
-    free_gzip_decoder(&decoder);
+    free_gzip_decoder(decoder);
     for (int i = 0; i < archive->tarGzCount; i++) {
         free(archive->tarGzEntries[i].name);
     }
@@ -664,12 +851,18 @@ static SRes read_bzip2_decompressed_bytes(JNIEnv *env, ArchiveHandle *archive, B
     while (written < out_len) {
         if (decoder->stream.avail_in == 0) {
             jlong src_offset = raw_bzip2_start + decoder->current_source_offset;
-            int r = read_from_source(env, archive, src_offset, decoder->in_buf, sizeof(decoder->in_buf));
+            unsigned char *inBuf = (archive->inStream.directBufferAddr != NULL)
+                ? (unsigned char *)archive->inStream.directBufferAddr
+                : decoder->in_buf;
+            size_t inCap = (archive->inStream.directBufferAddr != NULL)
+                ? (size_t)archive->inStream.directBufferCapacity
+                : sizeof(decoder->in_buf);
+            int r = read_from_source(env, archive, src_offset, inBuf, inCap);
             if (r < 0) return SZ_ERROR_READ;
             if (r == 0) {
                 break;
             }
-            decoder->stream.next_in = (char *)decoder->in_buf;
+            decoder->stream.next_in = (char *)inBuf;
             decoder->stream.avail_in = (unsigned int)r;
             decoder->current_source_offset += r;
         }
@@ -706,8 +899,8 @@ static SRes skip_bzip2_decompressed_bytes(JNIEnv *env, ArchiveHandle *archive, B
 }
 
 static SRes scan_tar_bz2_entries(JNIEnv *env, ArchiveHandle *archive, jlong raw_bzip2_start) {
-    Bzip2Decoder decoder;
-    SRes res = init_bzip2_decoder(env, archive, &decoder);
+    Bzip2Decoder *decoder = &archive->tarBz2Decoder;
+    SRes res = init_bzip2_decoder(env, archive, decoder);
     if (res != SZ_OK) return res;
     int capacity = 16;
     archive->tarGzEntries = (TarGzEntry *)malloc(capacity * sizeof(TarGzEntry));
@@ -716,8 +909,8 @@ static SRes scan_tar_bz2_entries(JNIEnv *env, ArchiveHandle *archive, jlong raw_
     int consecutive_zero_blocks = 0;
     while (1) {
         size_t processed = 0;
-        jlong header_offset = decoder.total_decompressed;
-        res = read_bzip2_decompressed_bytes(env, archive, &decoder, &header, 512, &processed, raw_bzip2_start);
+        jlong header_offset = decoder->total_decompressed;
+        res = read_bzip2_decompressed_bytes(env, archive, decoder, &header, 512, &processed, raw_bzip2_start);
         if (res != SZ_OK) goto error;
         if (processed < 512) {
             break;
@@ -770,16 +963,16 @@ static SRes scan_tar_bz2_entries(JNIEnv *env, ArchiveHandle *archive, jlong raw_
         entry->size = file_size;
         entry->is_dir = is_dir;
         entry->header_offset = header_offset;
-        entry->data_offset = decoder.total_decompressed;
+        entry->data_offset = decoder->total_decompressed;
         archive->tarGzCount++;
         jlong skip_size = (file_size + 511) & ~511;
-        res = skip_bzip2_decompressed_bytes(env, archive, &decoder, (size_t)skip_size, raw_bzip2_start);
+        res = skip_bzip2_decompressed_bytes(env, archive, decoder, (size_t)skip_size, raw_bzip2_start);
         if (res != SZ_OK) goto error;
     }
-    free_bzip2_decoder(&decoder);
+    free_bzip2_decoder(decoder);
     return SZ_OK;
 error:
-    free_bzip2_decoder(&decoder);
+    free_bzip2_decoder(decoder);
     for (int i = 0; i < archive->tarGzCount; i++) {
         free(archive->tarGzEntries[i].name);
     }
@@ -795,7 +988,6 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
 ) {
     ArchiveHandle *archive;
     jclass sourceClass;
-    jbyteArray initialBuffer;
     jint bytesRead;
     jbyte magic[8] = {0};
     int isZip = 0;
@@ -816,6 +1008,7 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
     archive->inStream.seekMethod = (*env)->GetMethodID(env, sourceClass, "seek", "(J)V");
     archive->inStream.positionMethod = (*env)->GetMethodID(env, sourceClass, "position", "()J");
     archive->inStream.lengthMethod = (*env)->GetMethodID(env, sourceClass, "length", "()J");
+    (*env)->DeleteLocalRef(env, sourceClass);
 
     if (archive->inStream.readMethod == NULL || archive->inStream.seekMethod == NULL ||
         archive->inStream.positionMethod == NULL || archive->inStream.lengthMethod == NULL) {
@@ -830,6 +1023,20 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         if ((*env)->ExceptionCheck(env)) {
             (*env)->ExceptionClear(env);
             archive->inStream.readDirectMethod = NULL;
+        } else {
+            jclass localJniClass = (*env)->GetObjectClass(env, obj);
+            if (localJniClass != NULL) {
+                archive->inStream.jniClass = (jclass)(*env)->NewGlobalRef(env, localJniClass);
+                archive->inStream.readDirectBridgeMethod = (*env)->GetStaticMethodID(
+                    env, localJniClass, "readDirect",
+                    "(Lcom/sorrowblue/kioarch/DirectSeekableSource;Ljava/nio/ByteBuffer;I)I"
+                );
+                if ((*env)->ExceptionCheck(env)) {
+                    (*env)->ExceptionClear(env);
+                    archive->inStream.readDirectBridgeMethod = NULL;
+                }
+                (*env)->DeleteLocalRef(env, localJniClass);
+            }
         }
     } else {
         if ((*env)->ExceptionCheck(env)) {
@@ -837,31 +1044,50 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         }
         archive->inStream.readDirectMethod = NULL;
     }
+    if (directSourceClass != NULL) {
+        (*env)->DeleteLocalRef(env, directSourceClass);
+    }
+
+    // Allocate reusable DirectByteBuffer when DirectSeekableSource is supported
+    if (archive->inStream.readDirectMethod != NULL) {
+        archive->inStream.directBufferBacking = malloc(kInputBufSize);
+        if (archive->inStream.directBufferBacking != NULL) {
+            jobject localDirect = (*env)->NewDirectByteBuffer(env, archive->inStream.directBufferBacking, (jlong)kInputBufSize);
+            if (localDirect != NULL) {
+                archive->inStream.directBuffer = (*env)->NewGlobalRef(env, localDirect);
+                (*env)->DeleteLocalRef(env, localDirect);
+                if (archive->inStream.directBuffer != NULL) {
+                    archive->inStream.directBufferAddr = (*env)->GetDirectBufferAddress(env, archive->inStream.directBuffer);
+                    archive->inStream.directBufferCapacity = (*env)->GetDirectBufferCapacity(env, archive->inStream.directBuffer);
+                }
+            }
+            if (archive->inStream.directBufferAddr == NULL) {
+                if (archive->inStream.directBuffer != NULL) {
+                    (*env)->DeleteGlobalRef(env, archive->inStream.directBuffer);
+                    archive->inStream.directBuffer = NULL;
+                }
+                free(archive->inStream.directBufferBacking);
+                archive->inStream.directBufferBacking = NULL;
+            }
+        }
+    }
 
     // Capture global reference for SeekableSource to prevent GC while archive is open
     archive->inStream.kotlinSource = (*env)->NewGlobalRef(env, kotlinSource);
     archive->inStream.env = env;
+    archive->inStream.sourcePos = -1;
+    archive->inStream.cacheOffset = -1;
+    archive->inStream.cacheLen = 0;
 
-    // Detect format using magic bytes
-    initialBuffer = (*env)->NewByteArray(env, 8);
-    (*env)->CallVoidMethod(env, kotlinSource, archive->inStream.seekMethod, (jlong)0);
+    // Detect format using magic bytes via unified read_from_source (uses DirectByteBuffer when available)
+    bytesRead = read_from_source(env, archive, 0, magic, 8);
     if ((*env)->ExceptionCheck(env)) {
-        (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
-        (*env)->DeleteLocalRef(env, initialBuffer);
+        cleanup_in_stream(env, &archive->inStream);
         free(archive);
         return 0;
     }
 
-    bytesRead = (*env)->CallIntMethod(env, kotlinSource, archive->inStream.readMethod, initialBuffer, 0, 8);
-    if ((*env)->ExceptionCheck(env)) {
-        (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
-        (*env)->DeleteLocalRef(env, initialBuffer);
-        free(archive);
-        return 0;
-    }
-
-    if (bytesRead >= 4) {
-        (*env)->GetByteArrayRegion(env, initialBuffer, 0, bytesRead, magic);
+    if (bytesRead >= 3) {
         // Check 7z Magic: 37 7A BC AF 27 1C
         if (bytesRead >= 6 &&
             magic[0] == 0x37 && magic[1] == 0x7A && magic[2] == (jbyte)0xBC &&
@@ -869,31 +1095,34 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
             is7z = 1;
         }
         // Check Zip Magic: PK (50 4B)
-        else if (magic[0] == 0x50 && magic[1] == 0x4B) {
+        else if (bytesRead >= 4 && magic[0] == 0x50 && magic[1] == 0x4B) {
             isZip = 1;
         }
         // Check Gzip Magic: 1F 8B
-        else if (magic[0] == 0x1F && magic[1] == (jbyte)0x8B) {
+        else if (bytesRead >= 4 && magic[0] == 0x1F && magic[1] == (jbyte)0x8B) {
             isTarGz = 1;
         }
         // Check Bzip2 Magic: BZh (42 5A 68)
-        else if (bytesRead >= 3 && magic[0] == 0x42 && magic[1] == 0x5A && magic[2] == 0x68) {
+        else if (magic[0] == 0x42 && magic[1] == 0x5A && magic[2] == 0x68) {
             isBzip2 = 1;
         }
     }
-    (*env)->DeleteLocalRef(env, initialBuffer);
 
     // Reset stream position to 0 after magic detection
     (*env)->CallVoidMethod(env, kotlinSource, archive->inStream.seekMethod, (jlong)0);
     if ((*env)->ExceptionCheck(env)) {
-        (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+        cleanup_in_stream(env, &archive->inStream);
         free(archive);
         return 0;
     }
+    archive->inStream.sourcePos = 0;
 
     if (is7z) {
         SRes res;
         archive->type = ARCHIVE_TYPE_7Z;
+        archive->sevenZipBlockIndex = 0xFFFFFFFF;
+        archive->sevenZipOutBuffer = NULL;
+        archive->sevenZipOutBufferSize = 0;
         archive->alloc.Alloc = SzAlloc;
         archive->alloc.Free = SzFree;
         archive->allocTemp.Alloc = SzAllocTemp;
@@ -902,10 +1131,15 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         archive->inStream.vt.Read = JniInStream_Read;
         archive->inStream.vt.Seek = JniInStream_Seek;
 
-        // Allocate input buffer for LookToRead2 stream
-        archive->lookStream.buf = (Byte *)archive->alloc.Alloc(&archive->alloc, kInputBufSize);
+        // Share directBufferAddr for LookToRead2 when available for zero-copy 256KB refills
+        if (archive->inStream.directBufferAddr != NULL &&
+            archive->inStream.directBufferCapacity >= (jlong)kInputBufSize) {
+            archive->lookStream.buf = (Byte *)archive->inStream.directBufferAddr;
+        } else {
+            archive->lookStream.buf = (Byte *)archive->alloc.Alloc(&archive->alloc, kInputBufSize);
+        }
         if (archive->lookStream.buf == NULL) {
-            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+            cleanup_in_stream(env, &archive->inStream);
             free(archive);
             return 0;
         }
@@ -921,9 +1155,11 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         res = SzArEx_Open(&archive->db, &archive->lookStream.vt, &archive->alloc, &archive->allocTemp);
         if (res != SZ_OK) {
             throw_7z_error(env, res, "open archive");
-            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
-            archive->alloc.Free(&archive->alloc, archive->lookStream.buf);
+            if (archive->lookStream.buf != (Byte *)archive->inStream.directBufferAddr) {
+                archive->alloc.Free(&archive->alloc, archive->lookStream.buf);
+            }
             SzArEx_Free(&archive->db, &archive->alloc);
+            cleanup_in_stream(env, &archive->inStream);
             free(archive);
             return 0;
         }
@@ -934,7 +1170,7 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         archive->type = ARCHIVE_TYPE_ZIP;
         totalLen = (*env)->CallLongMethod(env, kotlinSource, archive->inStream.lengthMethod);
         if ((*env)->ExceptionCheck(env)) {
-            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+            cleanup_in_stream(env, &archive->inStream);
             free(archive);
             return 0;
         }
@@ -946,7 +1182,7 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         zipRes = mz_zip_reader_init(&archive->zipArchive, (mz_uint64)totalLen, 0);
         if (!zipRes) {
             throw_miniz_error(env, mz_zip_get_last_error(&archive->zipArchive), "open archive");
-            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+            cleanup_in_stream(env, &archive->inStream);
             free(archive);
             return 0;
         }
@@ -956,14 +1192,15 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         jlong raw_deflate_start = skip_gzip_header(env, archive, 0);
         if (raw_deflate_start < 0) {
             throw_archive_exception(env, "com/sorrowblue/kioarch/ArchiveCorruptedException", "Invalid Gzip header");
-            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+            cleanup_in_stream(env, &archive->inStream);
             free(archive);
             return 0;
         }
+        archive->tarGzRawDeflateStart = raw_deflate_start;
         SRes res = scan_tar_gz_entries(env, archive, raw_deflate_start);
         if (res != SZ_OK) {
             throw_7z_error(env, res, "scan tar.gz entries");
-            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+            cleanup_in_stream(env, &archive->inStream);
             free(archive);
             return 0;
         }
@@ -971,24 +1208,26 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
         archive->type = ARCHIVE_TYPE_BZIP2;
         jlong resetPos = 0;
         (*env)->CallVoidMethod(env, kotlinSource, archive->inStream.seekMethod, resetPos);
+        archive->inStream.sourcePos = resetPos;
         if ((*env)->ExceptionCheck(env)) {
-            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+            cleanup_in_stream(env, &archive->inStream);
             free(archive);
             return 0;
         }
 
-        Bzip2Decoder decoder;
-        SRes initRes = init_bzip2_decoder(env, archive, &decoder);
+        Bzip2Decoder *decoder = &archive->tarBz2Decoder;
+        SRes initRes = init_bzip2_decoder(env, archive, decoder);
         if (initRes == SZ_OK) {
             TarHeader header;
             size_t processed = 0;
-            SRes readRes = read_bzip2_decompressed_bytes(env, archive, &decoder, &header, 512, &processed, 0);
-            free_bzip2_decoder(&decoder);
+            SRes readRes = read_bzip2_decompressed_bytes(env, archive, decoder, &header, 512, &processed, 0);
+            free_bzip2_decoder(decoder);
 
             // Reset stream again before scanning or returning
             (*env)->CallVoidMethod(env, kotlinSource, archive->inStream.seekMethod, resetPos);
+            archive->inStream.sourcePos = resetPos;
             if ((*env)->ExceptionCheck(env)) {
-                (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+                cleanup_in_stream(env, &archive->inStream);
                 free(archive);
                 return 0;
             }
@@ -998,7 +1237,7 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
                 SRes scanRes = scan_tar_bz2_entries(env, archive, 0);
                 if (scanRes != SZ_OK) {
                     throw_7z_error(env, scanRes, "scan tar.bz2 entries");
-                    (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+                    cleanup_in_stream(env, &archive->inStream);
                     free(archive);
                     return 0;
                 }
@@ -1013,21 +1252,21 @@ JNIEXPORT jlong JNICALL Java_com_sorrowblue_kioarch_KioArchJni_openArchive(
                     archive->tarGzEntries[0].header_offset = 0;
                     archive->tarGzEntries[0].data_offset = 0;
                 } else {
-                    (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+                    cleanup_in_stream(env, &archive->inStream);
                     free(archive);
                     return 0;
                 }
             }
         } else {
             throw_7z_error(env, initRes, "init bzip2 decoder");
-            (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+            cleanup_in_stream(env, &archive->inStream);
             free(archive);
             return 0;
         }
     } else {
         // Unsupported format
         throw_archive_exception(env, "com/sorrowblue/kioarch/ArchiveInvalidException", "Unsupported archive format (only 7z, ZIP, tar.gz, bz2 and tar.bz2 are supported)");
-        (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
+        cleanup_in_stream(env, &archive->inStream);
         free(archive);
         return 0;
     }
@@ -1044,10 +1283,16 @@ JNIEXPORT void JNICALL Java_com_sorrowblue_kioarch_KioArchJni_closeArchive(
     archive = (ArchiveHandle *)handle;
 
     if (archive->type == ARCHIVE_TYPE_7Z) {
+        if (archive->sevenZipOutBuffer != NULL) {
+            archive->alloc.Free(&archive->alloc, archive->sevenZipOutBuffer);
+            archive->sevenZipOutBuffer = NULL;
+            archive->sevenZipOutBufferSize = 0;
+        }
         if (archive->isDbExInit) {
             SzArEx_Free(&archive->db, &archive->alloc);
         }
-        if (archive->lookStream.buf != NULL) {
+        if (archive->lookStream.buf != NULL &&
+            archive->lookStream.buf != (Byte *)archive->inStream.directBufferAddr) {
             archive->alloc.Free(&archive->alloc, archive->lookStream.buf);
         }
     } else if (archive->type == ARCHIVE_TYPE_ZIP) {
@@ -1055,6 +1300,8 @@ JNIEXPORT void JNICALL Java_com_sorrowblue_kioarch_KioArchJni_closeArchive(
             mz_zip_reader_end(&archive->zipArchive);
         }
     } else if (archive->type == ARCHIVE_TYPE_TARGZ || archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
+        free_gzip_decoder(&archive->tarGzDecoder);
+        free_bzip2_decoder(&archive->tarBz2Decoder);
         if (archive->tarGzEntries != NULL) {
             for (int i = 0; i < archive->tarGzCount; i++) {
                 free(archive->tarGzEntries[i].name);
@@ -1063,13 +1310,7 @@ JNIEXPORT void JNICALL Java_com_sorrowblue_kioarch_KioArchJni_closeArchive(
         }
     }
 
-    if (archive->inStream.kotlinSource != NULL) {
-        (*env)->DeleteGlobalRef(env, archive->inStream.kotlinSource);
-    }
-
-    if (archive->inStream.tempBuffer != NULL) {
-        (*env)->DeleteGlobalRef(env, archive->inStream.tempBuffer);
-    }
+    cleanup_in_stream(env, &archive->inStream);
 
     free(archive);
 }
@@ -1122,12 +1363,17 @@ static jstring create_jstring_from_bytes(JNIEnv *env, const char *src, int is_ut
     if (stringCtor == NULL) {
         (*env)->DeleteLocalRef(env, bytes);
         (*env)->DeleteLocalRef(env, charsetName);
+        (*env)->DeleteLocalRef(env, stringClass);
         return NULL;
     }
 
     jstring jstr = (*env)->NewObject(env, stringClass, stringCtor, bytes, charsetName);
+    if ((*env)->ExceptionCheck(env)) {
+        jstr = NULL;
+    }
     (*env)->DeleteLocalRef(env, bytes);
     (*env)->DeleteLocalRef(env, charsetName);
+    (*env)->DeleteLocalRef(env, stringClass);
     return jstr;
 }
 
@@ -1162,7 +1408,7 @@ JNIEXPORT jobject JNICALL Java_com_sorrowblue_kioarch_KioArchJni_getEntries(
     }
 
     if (count < 0) count = 0;
-// (中略 - プレースホルダーのままでなく元の処理と新規処理の展開)
+    // Allocate metadata arrays for bulk JNI transfer
     indices = (jint *)malloc(count * sizeof(jint));
     sizes = (jlong *)malloc(count * sizeof(jlong));
     isDirs = (jboolean *)malloc(count * sizeof(jboolean));
@@ -1278,10 +1524,12 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
     // Refresh thread-bound JNIEnv pointer before executing nested JNI calls
     archive->inStream.env = env;
 
+    jclass sinkClass = (*env)->GetObjectClass(env, kotlinSink);
+    jmethodID writeMethod = (*env)->GetMethodID(env, sinkClass, "write", "([BII)V");
+    (*env)->DeleteLocalRef(env, sinkClass);
+    if (writeMethod == NULL) return JNI_FALSE;
+
     if (archive->type == ARCHIVE_TYPE_7Z) {
-        UInt32 blockIndex = 0xFFFFFFFF;
-        Byte *outBuffer = NULL;
-        size_t outBufferSize = 0;
         size_t offset = 0;
         size_t outSizeProcessed = 0;
         SRes res;
@@ -1290,69 +1538,55 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
 
         res = SzArEx_Extract(
             &archive->db, &archive->lookStream.vt, (UInt32)index,
-            &blockIndex, &outBuffer, &outBufferSize,
+            &archive->sevenZipBlockIndex, &archive->sevenZipOutBuffer, &archive->sevenZipOutBufferSize,
             &offset, &outSizeProcessed,
             &archive->alloc, &archive->allocTemp
         );
 
         if (res != SZ_OK) {
             throw_7z_error(env, res, "extract entry");
-            if (outBuffer != NULL) {
-                archive->alloc.Free(&archive->alloc, outBuffer);
+            if (archive->sevenZipOutBuffer != NULL) {
+                archive->alloc.Free(&archive->alloc, archive->sevenZipOutBuffer);
+                archive->sevenZipOutBuffer = NULL;
+                archive->sevenZipOutBufferSize = 0;
             }
+            archive->sevenZipBlockIndex = 0xFFFFFFFF;
             return JNI_FALSE;
         }
 
-        if (outSizeProcessed > 0 && outBuffer != NULL) {
-            jclass sinkClass;
-            jmethodID writeMethod;
-
-            sinkClass = (*env)->GetObjectClass(env, kotlinSink);
-            writeMethod = (*env)->GetMethodID(env, sinkClass, "write", "([BII)V");
-            if (writeMethod == NULL) {
-                archive->alloc.Free(&archive->alloc, outBuffer);
+        if (outSizeProcessed > 0 && archive->sevenZipOutBuffer != NULL) {
+            size_t bytesWritten = 0;
+            size_t chunkSize = 65536;
+            jbyteArray chunkArray = (*env)->NewByteArray(env, (jsize)chunkSize);
+            if (chunkArray == NULL) {
                 return JNI_FALSE;
             }
 
-            {
-                size_t bytesWritten = 0;
-                size_t chunkSize = 65536;
-                jbyteArray chunkArray = (*env)->NewByteArray(env, (jsize)chunkSize);
+            while (bytesWritten < outSizeProcessed) {
+                size_t remaining = outSizeProcessed - bytesWritten;
+                size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
 
-                while (bytesWritten < outSizeProcessed) {
-                    size_t remaining = outSizeProcessed - bytesWritten;
-                    size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
+                (*env)->SetByteArrayRegion(env, chunkArray, 0, (jsize)currentChunk, (jbyte *)(archive->sevenZipOutBuffer + offset + bytesWritten));
+                (*env)->CallVoidMethod(env, kotlinSink, writeMethod, chunkArray, 0, (jint)currentChunk);
 
-                    (*env)->SetByteArrayRegion(env, chunkArray, 0, (jsize)currentChunk, (jbyte *)(outBuffer + offset + bytesWritten));
-                    (*env)->CallVoidMethod(env, kotlinSink, writeMethod, chunkArray, 0, (jint)currentChunk);
-
-                    if ((*env)->ExceptionCheck(env)) {
-                        break;
-                    }
-
-                    bytesWritten += currentChunk;
+                if ((*env)->ExceptionCheck(env)) {
+                    break;
                 }
 
-                (*env)->DeleteLocalRef(env, chunkArray);
+                bytesWritten += currentChunk;
             }
-        }
 
-        if (outBuffer != NULL) {
-            archive->alloc.Free(&archive->alloc, outBuffer);
+            (*env)->DeleteLocalRef(env, chunkArray);
         }
     } else if (archive->type == ARCHIVE_TYPE_ZIP) {
         ZipExtractContext ctx;
-        jclass sinkClass;
         mz_bool success;
 
         if (index < 0 || index >= (jint)mz_zip_reader_get_num_files(&archive->zipArchive)) return JNI_FALSE;
 
         ctx.env = env;
         ctx.kotlinSink = kotlinSink;
-
-        sinkClass = (*env)->GetObjectClass(env, kotlinSink);
-        ctx.writeMethod = (*env)->GetMethodID(env, sinkClass, "write", "([BII)V");
-        if (ctx.writeMethod == NULL) return JNI_FALSE;
+        ctx.writeMethod = writeMethod;
 
         // Extract using miniz's callback-based decompresor
         success = mz_zip_reader_extract_to_callback(&archive->zipArchive, (mz_uint)index, Miniz_Write_Callback, &ctx, 0);
@@ -1363,38 +1597,36 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
     } else if (archive->type == ARCHIVE_TYPE_TARGZ) {
         if (index < 0 || index >= archive->tarGzCount) return JNI_FALSE;
         TarGzEntry *entry = &archive->tarGzEntries[index];
-        jlong raw_deflate_start = skip_gzip_header(env, archive, 0);
+        jlong raw_deflate_start = archive->tarGzRawDeflateStart;
         if (raw_deflate_start < 0) return JNI_FALSE;
 
-        GzipDecoder decoder;
-        SRes res = init_gzip_decoder(env, archive, &decoder);
-        if (res != SZ_OK) return JNI_FALSE;
-
-        res = skip_decompressed_bytes(env, archive, &decoder, (size_t)entry->data_offset, raw_deflate_start);
-        if (res != SZ_OK) {
-            free_gzip_decoder(&decoder);
-            return JNI_FALSE;
+        GzipDecoder *decoder = &archive->tarGzDecoder;
+        SRes res = SZ_OK;
+        if (!decoder->is_init || decoder->total_decompressed > entry->data_offset) {
+            free_gzip_decoder(decoder);
+            res = init_gzip_decoder(env, archive, decoder);
+            if (res != SZ_OK) return JNI_FALSE;
         }
 
-        jclass sinkClass = (*env)->GetObjectClass(env, kotlinSink);
-        jmethodID writeMethod = (*env)->GetMethodID(env, sinkClass, "write", "([BII)V");
-        if (writeMethod == NULL) {
-            free_gzip_decoder(&decoder);
-            return JNI_FALSE;
+        jlong skip_bytes = entry->data_offset - decoder->total_decompressed;
+        if (skip_bytes > 0) {
+            res = skip_decompressed_bytes(env, archive, decoder, (size_t)skip_bytes, raw_deflate_start);
+            if (res != SZ_OK) {
+                free_gzip_decoder(decoder);
+                return JNI_FALSE;
+            }
         }
 
         size_t bytesWritten = 0;
         size_t chunkSize = 65536;
         jbyteArray chunkArray = (*env)->NewByteArray(env, (jsize)chunkSize);
         if (chunkArray == NULL) {
-            free_gzip_decoder(&decoder);
             return JNI_FALSE;
         }
 
         unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
         if (outBuffer == NULL) {
             (*env)->DeleteLocalRef(env, chunkArray);
-            free_gzip_decoder(&decoder);
             return JNI_FALSE;
         }
 
@@ -1403,7 +1635,7 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
             size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
             size_t processed = 0;
 
-            res = read_decompressed_bytes(env, archive, &decoder, outBuffer, currentChunk, &processed, raw_deflate_start);
+            res = read_decompressed_bytes(env, archive, decoder, outBuffer, currentChunk, &processed, raw_deflate_start);
             if (res != SZ_OK || processed == 0) {
                 break;
             }
@@ -1420,46 +1652,44 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
 
         free(outBuffer);
         (*env)->DeleteLocalRef(env, chunkArray);
-        free_gzip_decoder(&decoder);
 
-        if (res != SZ_OK || bytesWritten < (size_t)entry->size) {
+        if (res != SZ_OK || bytesWritten < (size_t)entry->size || (*env)->ExceptionCheck(env)) {
+            free_gzip_decoder(decoder);
             return JNI_FALSE;
         }
     } else if (archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
         if (index < 0 || index >= archive->tarGzCount) return JNI_FALSE;
         TarGzEntry *entry = &archive->tarGzEntries[index];
 
-        Bzip2Decoder decoder;
-        SRes res = init_bzip2_decoder(env, archive, &decoder);
-        if (res != SZ_OK) return JNI_FALSE;
-
-        if (archive->type == ARCHIVE_TYPE_TARBZ2) {
-            res = skip_bzip2_decompressed_bytes(env, archive, &decoder, (size_t)entry->data_offset, 0);
-            if (res != SZ_OK) {
-                free_bzip2_decoder(&decoder);
-                return JNI_FALSE;
-            }
+        Bzip2Decoder *decoder = &archive->tarBz2Decoder;
+        SRes res = SZ_OK;
+        if (!decoder->is_init || archive->type == ARCHIVE_TYPE_BZIP2 || decoder->total_decompressed > entry->data_offset) {
+            free_bzip2_decoder(decoder);
+            res = init_bzip2_decoder(env, archive, decoder);
+            if (res != SZ_OK) return JNI_FALSE;
         }
 
-        jclass sinkClass = (*env)->GetObjectClass(env, kotlinSink);
-        jmethodID writeMethod = (*env)->GetMethodID(env, sinkClass, "write", "([BII)V");
-        if (writeMethod == NULL) {
-            free_bzip2_decoder(&decoder);
-            return JNI_FALSE;
+        if (archive->type == ARCHIVE_TYPE_TARBZ2) {
+            jlong skip_bytes = entry->data_offset - decoder->total_decompressed;
+            if (skip_bytes > 0) {
+                res = skip_bzip2_decompressed_bytes(env, archive, decoder, (size_t)skip_bytes, 0);
+                if (res != SZ_OK) {
+                    free_bzip2_decoder(decoder);
+                    return JNI_FALSE;
+                }
+            }
         }
 
         size_t bytesWritten = 0;
         size_t chunkSize = 65536;
         jbyteArray chunkArray = (*env)->NewByteArray(env, (jsize)chunkSize);
         if (chunkArray == NULL) {
-            free_bzip2_decoder(&decoder);
             return JNI_FALSE;
         }
 
         unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
         if (outBuffer == NULL) {
             (*env)->DeleteLocalRef(env, chunkArray);
-            free_bzip2_decoder(&decoder);
             return JNI_FALSE;
         }
 
@@ -1471,7 +1701,7 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
             size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
             size_t processed = 0;
 
-            res = read_bzip2_decompressed_bytes(env, archive, &decoder, outBuffer, currentChunk, &processed, 0);
+            res = read_bzip2_decompressed_bytes(env, archive, decoder, outBuffer, currentChunk, &processed, 0);
             if (res != SZ_OK || processed == 0) {
                 break;
             }
@@ -1488,9 +1718,9 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntry(
 
         free(outBuffer);
         (*env)->DeleteLocalRef(env, chunkArray);
-        free_bzip2_decoder(&decoder);
 
-        if (res != SZ_OK || (!isInfinite && bytesWritten < (size_t)targetSize)) {
+        if (res != SZ_OK || (!isInfinite && bytesWritten < (size_t)targetSize) || (*env)->ExceptionCheck(env)) {
+            free_bzip2_decoder(decoder);
             return JNI_FALSE;
         }
     }
@@ -1503,20 +1733,55 @@ typedef struct {
     JNIEnv *env;
     jobject callback;
     jmethodID onDataMethod;
+    jobject directBuffer;
+    unsigned char *directBufAddr;
+    size_t directBufCapacity;
+    size_t bufferedBytes;
+    jobject cachedDirectBuffer;
+    const void *cachedBufAddr;
+    size_t cachedBufCapacity;
 } ZipExtractContextDirect;
 
 // Custom write callback for miniz streaming decompressed chunk into DirectExtractCallback
 static size_t Miniz_Write_Callback_Direct(void *pOpaque, mz_uint64 file_ofs, const void *pBuf, size_t n) {
     ZipExtractContextDirect *ctx = (ZipExtractContextDirect *)pOpaque;
     JNIEnv *env = ctx->env;
+    (void)file_ofs;
 
     if (n == 0) return 0;
 
-    jobject directBuffer = (*env)->NewDirectByteBuffer(env, (void *)pBuf, (jlong)n);
-    if (directBuffer == NULL) return 0;
+    if (ctx->directBufAddr != NULL && ctx->directBufCapacity > 0) {
+        const unsigned char *src = (const unsigned char *)pBuf;
+        size_t remaining = n;
+        while (remaining > 0) {
+            size_t space = ctx->directBufCapacity - ctx->bufferedBytes;
+            size_t to_copy = (remaining < space) ? remaining : space;
+            memcpy(ctx->directBufAddr + ctx->bufferedBytes, src, to_copy);
+            ctx->bufferedBytes += to_copy;
+            src += to_copy;
+            remaining -= to_copy;
+            if (ctx->bufferedBytes == ctx->directBufCapacity) {
+                (*env)->CallVoidMethod(env, ctx->callback, ctx->onDataMethod, ctx->directBuffer, (jint)ctx->bufferedBytes);
+                ctx->bufferedBytes = 0;
+                if ((*env)->ExceptionCheck(env)) {
+                    return 0;
+                }
+            }
+        }
+        return n;
+    }
 
-    (*env)->CallVoidMethod(env, ctx->callback, ctx->onDataMethod, directBuffer);
-    (*env)->DeleteLocalRef(env, directBuffer);
+    if (ctx->cachedDirectBuffer == NULL || ctx->cachedBufAddr != pBuf || n > ctx->cachedBufCapacity) {
+        if (ctx->cachedDirectBuffer != NULL) {
+            (*env)->DeleteLocalRef(env, ctx->cachedDirectBuffer);
+        }
+        ctx->cachedDirectBuffer = (*env)->NewDirectByteBuffer(env, (void *)pBuf, (jlong)n);
+        if (ctx->cachedDirectBuffer == NULL) return 0;
+        ctx->cachedBufAddr = pBuf;
+        ctx->cachedBufCapacity = n;
+    }
+
+    (*env)->CallVoidMethod(env, ctx->callback, ctx->onDataMethod, ctx->cachedDirectBuffer, (jint)n);
 
     if ((*env)->ExceptionCheck(env)) {
         return 0; // abort extraction on exception
@@ -1525,9 +1790,174 @@ static size_t Miniz_Write_Callback_Direct(void *pOpaque, mz_uint64 file_ofs, con
     return n;
 }
 
+static jboolean extract_zip_entry_zero_copy(
+    JNIEnv *env,
+    ArchiveHandle *archive,
+    jint index,
+    jobject directBuffer,
+    unsigned char *outBuffer,
+    size_t outCap,
+    jobject callback,
+    jmethodID onDataMethod,
+    int *handled
+) {
+    JniInStream *stream = &archive->inStream;
+    mz_zip_archive_file_stat file_stat;
+    unsigned char local_header[30];
+    mz_uint64 cur_file_ofs;
+
+    *handled = 0;
+
+    if (stream->directBufferAddr == NULL || stream->directBufferCapacity <= 0 ||
+        outBuffer == NULL || outCap < TINFL_LZ_DICT_SIZE || ((outCap & (outCap - 1)) != 0)) {
+        return JNI_FALSE;
+    }
+
+    if (!mz_zip_reader_file_stat(&archive->zipArchive, (mz_uint)index, &file_stat)) {
+        return JNI_FALSE;
+    }
+
+    if (file_stat.m_is_directory || !file_stat.m_comp_size) {
+        *handled = 1;
+        return JNI_TRUE;
+    }
+
+    if ((file_stat.m_bit_flag & 0x61) != 0 ||
+        (file_stat.m_method != MZ_DEFLATED && file_stat.m_method != 0)) {
+        return JNI_FALSE;
+    }
+
+    cur_file_ofs = file_stat.m_local_header_ofs;
+    if (Miniz_Read_Callback(archive, cur_file_ofs, local_header, 30) != 30) {
+        *handled = 1;
+        throw_miniz_error(env, MZ_ZIP_FILE_READ_FAILED, "extract entry");
+        return JNI_FALSE;
+    }
+
+    if (MZ_READ_LE32(local_header) != 0x04034b50) {
+        *handled = 1;
+        throw_miniz_error(env, MZ_ZIP_INVALID_HEADER_OR_CORRUPTED, "extract entry");
+        return JNI_FALSE;
+    }
+
+    cur_file_ofs += 30 + (mz_uint64)MZ_READ_LE16(local_header + 26) + (mz_uint64)MZ_READ_LE16(local_header + 28);
+    if ((cur_file_ofs + file_stat.m_comp_size) > archive->zipArchive.m_archive_size) {
+        *handled = 1;
+        throw_miniz_error(env, MZ_ZIP_INVALID_HEADER_OR_CORRUPTED, "extract entry");
+        return JNI_FALSE;
+    }
+
+    *handled = 1;
+
+    UInt32 file_crc32 = CRC_INIT_VAL;
+    mz_uint64 comp_remaining = file_stat.m_comp_size;
+
+    if (file_stat.m_method == 0) {
+        if (file_stat.m_comp_size != file_stat.m_uncomp_size) {
+            throw_miniz_error(env, MZ_ZIP_INVALID_HEADER_OR_CORRUPTED, "extract entry");
+            return JNI_FALSE;
+        }
+        while (comp_remaining > 0) {
+            size_t to_read = (comp_remaining < (mz_uint64)outCap) ? (size_t)comp_remaining : outCap;
+            size_t r = Miniz_Read_Callback(archive, cur_file_ofs, outBuffer, to_read);
+            if (r == 0) {
+                throw_miniz_error(env, MZ_ZIP_FILE_READ_FAILED, "extract entry");
+                return JNI_FALSE;
+            }
+            size_t chunk_len = r;
+            file_crc32 = CrcUpdate(file_crc32, outBuffer, chunk_len);
+            (*env)->CallVoidMethod(env, callback, onDataMethod, directBuffer, (jint)chunk_len);
+            if ((*env)->ExceptionCheck(env)) {
+                return JNI_FALSE;
+            }
+            cur_file_ofs += chunk_len;
+            comp_remaining -= chunk_len;
+        }
+        if (CRC_GET_DIGEST(file_crc32) != file_stat.m_crc32) {
+            throw_miniz_error(env, MZ_ZIP_CRC_CHECK_FAILED, "extract entry");
+            return JNI_FALSE;
+        }
+        return JNI_TRUE;
+    }
+
+    tinfl_decompressor *inflator = &archive->zipInflator;
+    tinfl_init(inflator);
+    mz_uint64 out_buf_ofs = 0;
+    size_t dict_ofs = 0;
+    mz_uint32 base_flags = (file_stat.m_uncomp_size <= (mz_uint64)outCap) ? TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF : 0;
+    tinfl_status status = TINFL_STATUS_NEEDS_MORE_INPUT;
+
+    do {
+        if (stream->cacheOffset < 0 ||
+            (jlong)cur_file_ofs < stream->cacheOffset ||
+            (jlong)cur_file_ofs >= stream->cacheOffset + (jlong)stream->cacheLen) {
+            int r = read_from_source(env, archive, (jlong)cur_file_ofs, stream->directBufferAddr, (size_t)stream->directBufferCapacity);
+            if (r <= 0) {
+                stream->cacheOffset = -1;
+                stream->cacheLen = 0;
+                throw_miniz_error(env, MZ_ZIP_FILE_READ_FAILED, "extract entry");
+                return JNI_FALSE;
+            }
+            stream->cacheOffset = (jlong)cur_file_ofs;
+            stream->cacheLen = (size_t)r;
+        }
+
+        size_t cache_avail = (size_t)((stream->cacheOffset + (jlong)stream->cacheLen) - (jlong)cur_file_ofs);
+        size_t avail_in = (comp_remaining < (mz_uint64)cache_avail) ? (size_t)comp_remaining : cache_avail;
+        const mz_uint8 *in_ptr = (const mz_uint8 *)stream->directBufferAddr + ((jlong)cur_file_ofs - stream->cacheOffset);
+
+        size_t in_bytes = avail_in;
+        size_t out_bytes = outCap - dict_ofs;
+        mz_uint32 flags = base_flags | ((comp_remaining > (mz_uint64)avail_in) ? TINFL_FLAG_HAS_MORE_INPUT : 0);
+
+        status = tinfl_decompress(
+            inflator,
+            in_ptr,
+            &in_bytes,
+            outBuffer,
+            outBuffer + dict_ofs,
+            &out_bytes,
+            flags
+        );
+
+        cur_file_ofs += in_bytes;
+        comp_remaining -= in_bytes;
+        dict_ofs += out_bytes;
+        out_buf_ofs += out_bytes;
+
+        if (out_buf_ofs > file_stat.m_uncomp_size) {
+            throw_miniz_error(env, MZ_ZIP_DECOMPRESSION_FAILED, "extract entry");
+            return JNI_FALSE;
+        }
+
+        if (dict_ofs == outCap || status == TINFL_STATUS_DONE || status == TINFL_STATUS_HAS_MORE_OUTPUT) {
+            if (dict_ofs > 0) {
+                file_crc32 = CrcUpdate(file_crc32, outBuffer, dict_ofs);
+                (*env)->CallVoidMethod(env, callback, onDataMethod, directBuffer, (jint)dict_ofs);
+                if ((*env)->ExceptionCheck(env)) {
+                    return JNI_FALSE;
+                }
+                dict_ofs = 0;
+            }
+        }
+    } while (status == TINFL_STATUS_NEEDS_MORE_INPUT || status == TINFL_STATUS_HAS_MORE_OUTPUT);
+
+    if (status != TINFL_STATUS_DONE || out_buf_ofs != file_stat.m_uncomp_size) {
+        throw_miniz_error(env, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE, "extract entry");
+        return JNI_FALSE;
+    }
+
+    if (CRC_GET_DIGEST(file_crc32) != file_stat.m_crc32) {
+        throw_miniz_error(env, MZ_ZIP_CRC_CHECK_FAILED, "extract entry");
+        return JNI_FALSE;
+    }
+
+    return JNI_TRUE;
+}
+
 // JNI function to extract an entry using zero-copy Direct ByteBuffer
 JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntryDirect(
-    JNIEnv *env, jobject obj, jlong handle, jint index, jobject callback
+    JNIEnv *env, jobject obj, jlong handle, jint index, jobject directBuffer, jobject callback
 ) {
     ArchiveHandle *archive;
     if (handle == 0) return JNI_FALSE;
@@ -1537,13 +1967,11 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntryDi
     archive->inStream.env = env;
 
     jclass callbackClass = (*env)->GetObjectClass(env, callback);
-    jmethodID onDataMethod = (*env)->GetMethodID(env, callbackClass, "onData", "(Ljava/nio/ByteBuffer;)V");
+    jmethodID onDataMethod = (*env)->GetMethodID(env, callbackClass, "onData", "(Ljava/nio/ByteBuffer;I)V");
+    (*env)->DeleteLocalRef(env, callbackClass);
     if (onDataMethod == NULL) return JNI_FALSE;
 
     if (archive->type == ARCHIVE_TYPE_7Z) {
-        UInt32 blockIndex = 0xFFFFFFFF;
-        Byte *outBuffer = NULL;
-        size_t outBufferSize = 0;
         size_t offset = 0;
         size_t outSizeProcessed = 0;
         SRes res;
@@ -1552,86 +1980,123 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntryDi
 
         res = SzArEx_Extract(
             &archive->db, &archive->lookStream.vt, (UInt32)index,
-            &blockIndex, &outBuffer, &outBufferSize,
+            &archive->sevenZipBlockIndex, &archive->sevenZipOutBuffer, &archive->sevenZipOutBufferSize,
             &offset, &outSizeProcessed,
             &archive->alloc, &archive->allocTemp
         );
 
         if (res != SZ_OK) {
             throw_7z_error(env, res, "extract entry");
-            if (outBuffer != NULL) {
-                archive->alloc.Free(&archive->alloc, outBuffer);
+            if (archive->sevenZipOutBuffer != NULL) {
+                archive->alloc.Free(&archive->alloc, archive->sevenZipOutBuffer);
+                archive->sevenZipOutBuffer = NULL;
+                archive->sevenZipOutBufferSize = 0;
             }
+            archive->sevenZipBlockIndex = 0xFFFFFFFF;
             return JNI_FALSE;
         }
 
-        if (outSizeProcessed > 0 && outBuffer != NULL) {
-            jobject directBuffer = (*env)->NewDirectByteBuffer(env, (void *)(outBuffer + offset), (jlong)outSizeProcessed);
-            if (directBuffer != NULL) {
-                (*env)->CallVoidMethod(env, callback, onDataMethod, directBuffer);
-                (*env)->DeleteLocalRef(env, directBuffer);
+        if (outSizeProcessed > 0 && archive->sevenZipOutBuffer != NULL) {
+            jobject sevenZipBuffer = (*env)->NewDirectByteBuffer(env, (void *)(archive->sevenZipOutBuffer + offset), (jlong)outSizeProcessed);
+            if (sevenZipBuffer == NULL) {
+                return JNI_FALSE;
             }
-        }
-
-        if (outBuffer != NULL) {
-            archive->alloc.Free(&archive->alloc, outBuffer);
+            (*env)->CallVoidMethod(env, callback, onDataMethod, sevenZipBuffer, (jint)outSizeProcessed);
+            (*env)->DeleteLocalRef(env, sevenZipBuffer);
         }
     } else if (archive->type == ARCHIVE_TYPE_ZIP) {
         ZipExtractContextDirect ctx;
         mz_bool success;
+        unsigned char *outBuffer = NULL;
+        jlong directCapacity = 0;
 
         if (index < 0 || index >= (jint)mz_zip_reader_get_num_files(&archive->zipArchive)) return JNI_FALSE;
+
+        if (directBuffer != NULL) {
+            outBuffer = (unsigned char *)(*env)->GetDirectBufferAddress(env, directBuffer);
+            directCapacity = (*env)->GetDirectBufferCapacity(env, directBuffer);
+        }
+
+        if (outBuffer != NULL && directCapacity > 0) {
+            int handled = 0;
+            jboolean zeroCopyRes = extract_zip_entry_zero_copy(
+                env, archive, index, directBuffer, outBuffer, (size_t)directCapacity, callback, onDataMethod, &handled
+            );
+            if (handled) {
+                return zeroCopyRes;
+            }
+        }
 
         ctx.env = env;
         ctx.callback = callback;
         ctx.onDataMethod = onDataMethod;
+        ctx.directBuffer = directBuffer;
+        ctx.directBufAddr = outBuffer;
+        ctx.directBufCapacity = (directCapacity > 0) ? (size_t)directCapacity : 0;
+        ctx.bufferedBytes = 0;
+        ctx.cachedDirectBuffer = NULL;
+        ctx.cachedBufAddr = NULL;
+        ctx.cachedBufCapacity = 0;
 
-        // Extract using miniz's callback-based decompresor with Direct Write Callback
+        // Extract using miniz's callback-based decompressor with Direct Write Callback
         success = mz_zip_reader_extract_to_callback(&archive->zipArchive, (mz_uint)index, Miniz_Write_Callback_Direct, &ctx, 0);
+        if (success && ctx.bufferedBytes > 0 && ctx.directBuffer != NULL) {
+            (*env)->CallVoidMethod(env, callback, onDataMethod, ctx.directBuffer, (jint)ctx.bufferedBytes);
+            ctx.bufferedBytes = 0;
+            if ((*env)->ExceptionCheck(env)) {
+                success = MZ_FALSE;
+            }
+        }
+        if (ctx.cachedDirectBuffer != NULL) {
+            (*env)->DeleteLocalRef(env, ctx.cachedDirectBuffer);
+        }
         if (!success) {
-            throw_miniz_error(env, mz_zip_get_last_error(&archive->zipArchive), "extract entry");
+            if (!(*env)->ExceptionCheck(env)) {
+                throw_miniz_error(env, mz_zip_get_last_error(&archive->zipArchive), "extract entry");
+            }
             return JNI_FALSE;
         }
     } else if (archive->type == ARCHIVE_TYPE_TARGZ) {
-        if (index < 0 || index >= archive->tarGzCount) return JNI_FALSE;
+        if (index < 0 || index >= archive->tarGzCount || directBuffer == NULL) return JNI_FALSE;
+        unsigned char *outBuffer = (unsigned char *)(*env)->GetDirectBufferAddress(env, directBuffer);
+        jlong directCapacity = (*env)->GetDirectBufferCapacity(env, directBuffer);
+        if (outBuffer == NULL || directCapacity <= 0) return JNI_FALSE;
+
         TarGzEntry *entry = &archive->tarGzEntries[index];
-        jlong raw_deflate_start = skip_gzip_header(env, archive, 0);
+        jlong raw_deflate_start = archive->tarGzRawDeflateStart;
         if (raw_deflate_start < 0) return JNI_FALSE;
 
-        GzipDecoder decoder;
-        SRes res = init_gzip_decoder(env, archive, &decoder);
-        if (res != SZ_OK) return JNI_FALSE;
+        GzipDecoder *decoder = &archive->tarGzDecoder;
+        SRes res = SZ_OK;
+        if (!decoder->is_init || decoder->total_decompressed > entry->data_offset) {
+            free_gzip_decoder(decoder);
+            res = init_gzip_decoder(env, archive, decoder);
+            if (res != SZ_OK) return JNI_FALSE;
+        }
 
-        res = skip_decompressed_bytes(env, archive, &decoder, (size_t)entry->data_offset, raw_deflate_start);
-        if (res != SZ_OK) {
-            free_gzip_decoder(&decoder);
-            return JNI_FALSE;
+        jlong skip_bytes = entry->data_offset - decoder->total_decompressed;
+        if (skip_bytes > 0) {
+            res = skip_decompressed_bytes(env, archive, decoder, (size_t)skip_bytes, raw_deflate_start);
+            if (res != SZ_OK) {
+                free_gzip_decoder(decoder);
+                return JNI_FALSE;
+            }
         }
 
         size_t bytesWritten = 0;
-        size_t chunkSize = 65536;
-
-        unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
-        if (outBuffer == NULL) {
-            free_gzip_decoder(&decoder);
-            return JNI_FALSE;
-        }
+        size_t chunkSize = (size_t)directCapacity;
 
         while (bytesWritten < (size_t)entry->size) {
             size_t remaining = (size_t)entry->size - bytesWritten;
             size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
             size_t processed = 0;
 
-            res = read_decompressed_bytes(env, archive, &decoder, outBuffer, currentChunk, &processed, raw_deflate_start);
+            res = read_decompressed_bytes(env, archive, decoder, outBuffer, currentChunk, &processed, raw_deflate_start);
             if (res != SZ_OK || processed == 0) {
                 break;
             }
 
-            jobject directBuffer = (*env)->NewDirectByteBuffer(env, outBuffer, (jlong)processed);
-            if (directBuffer != NULL) {
-                (*env)->CallVoidMethod(env, callback, onDataMethod, directBuffer);
-                (*env)->DeleteLocalRef(env, directBuffer);
-            }
+            (*env)->CallVoidMethod(env, callback, onDataMethod, directBuffer, (jint)processed);
 
             if ((*env)->ExceptionCheck(env)) {
                 break;
@@ -1640,36 +2105,39 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntryDi
             bytesWritten += processed;
         }
 
-        free(outBuffer);
-        free_gzip_decoder(&decoder);
-
-        if (res != SZ_OK || bytesWritten < (size_t)entry->size) {
+        if (res != SZ_OK || bytesWritten < (size_t)entry->size || (*env)->ExceptionCheck(env)) {
+            free_gzip_decoder(decoder);
             return JNI_FALSE;
         }
     } else if (archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
-        if (index < 0 || index >= archive->tarGzCount) return JNI_FALSE;
+        if (index < 0 || index >= archive->tarGzCount || directBuffer == NULL) return JNI_FALSE;
+        unsigned char *outBuffer = (unsigned char *)(*env)->GetDirectBufferAddress(env, directBuffer);
+        jlong directCapacity = (*env)->GetDirectBufferCapacity(env, directBuffer);
+        if (outBuffer == NULL || directCapacity <= 0) return JNI_FALSE;
+
         TarGzEntry *entry = &archive->tarGzEntries[index];
 
-        Bzip2Decoder decoder;
-        SRes res = init_bzip2_decoder(env, archive, &decoder);
-        if (res != SZ_OK) return JNI_FALSE;
+        Bzip2Decoder *decoder = &archive->tarBz2Decoder;
+        SRes res = SZ_OK;
+        if (!decoder->is_init || archive->type == ARCHIVE_TYPE_BZIP2 || decoder->total_decompressed > entry->data_offset) {
+            free_bzip2_decoder(decoder);
+            res = init_bzip2_decoder(env, archive, decoder);
+            if (res != SZ_OK) return JNI_FALSE;
+        }
 
         if (archive->type == ARCHIVE_TYPE_TARBZ2) {
-            res = skip_bzip2_decompressed_bytes(env, archive, &decoder, (size_t)entry->data_offset, 0);
-            if (res != SZ_OK) {
-                free_bzip2_decoder(&decoder);
-                return JNI_FALSE;
+            jlong skip_bytes = entry->data_offset - decoder->total_decompressed;
+            if (skip_bytes > 0) {
+                res = skip_bzip2_decompressed_bytes(env, archive, decoder, (size_t)skip_bytes, 0);
+                if (res != SZ_OK) {
+                    free_bzip2_decoder(decoder);
+                    return JNI_FALSE;
+                }
             }
         }
 
         size_t bytesWritten = 0;
-        size_t chunkSize = 65536;
-
-        unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
-        if (outBuffer == NULL) {
-            free_bzip2_decoder(&decoder);
-            return JNI_FALSE;
-        }
+        size_t chunkSize = (size_t)directCapacity;
 
         jlong targetSize = entry->size;
         int isInfinite = (targetSize < 0);
@@ -1679,16 +2147,12 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntryDi
             size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
             size_t processed = 0;
 
-            res = read_bzip2_decompressed_bytes(env, archive, &decoder, outBuffer, currentChunk, &processed, 0);
+            res = read_bzip2_decompressed_bytes(env, archive, decoder, outBuffer, currentChunk, &processed, 0);
             if (res != SZ_OK || processed == 0) {
                 break;
             }
 
-            jobject directBuffer = (*env)->NewDirectByteBuffer(env, outBuffer, (jlong)processed);
-            if (directBuffer != NULL) {
-                (*env)->CallVoidMethod(env, callback, onDataMethod, directBuffer);
-                (*env)->DeleteLocalRef(env, directBuffer);
-            }
+            (*env)->CallVoidMethod(env, callback, onDataMethod, directBuffer, (jint)processed);
 
             if ((*env)->ExceptionCheck(env)) {
                 break;
@@ -1697,10 +2161,8 @@ JNIEXPORT jboolean JNICALL Java_com_sorrowblue_kioarch_KioArchJni_extractEntryDi
             bytesWritten += processed;
         }
 
-        free(outBuffer);
-        free_bzip2_decoder(&decoder);
-
-        if (res != SZ_OK || (!isInfinite && bytesWritten < (size_t)targetSize)) {
+        if (res != SZ_OK || (!isInfinite && bytesWritten < (size_t)targetSize) || (*env)->ExceptionCheck(env)) {
+            free_bzip2_decoder(decoder);
             return JNI_FALSE;
         }
     }

@@ -24,6 +24,23 @@ private const val ENTRY_STRUCT_SIZE = 24
 private const val SINK_STRUCT_SIZE = 8
 private const val ERR_MSG_BUFFER_SIZE = 512
 private const val ENTRY_SIZE_OFFSET = 1
+private const val INITIAL_READ_BUFFER_SIZE = 256 * 1024
+private const val WRITE_CHUNK_SIZE = 64 * 1024
+
+@Suppress("MagicNumber")
+private fun readIntLe(byteArray: ByteArray, offset: Int): Int =
+    (byteArray[offset].toInt() and 0xFF) or
+        ((byteArray[offset + 1].toInt() and 0xFF) shl 8) or
+        ((byteArray[offset + 2].toInt() and 0xFF) shl 16) or
+        ((byteArray[offset + 3].toInt() and 0xFF) shl 24)
+
+@Suppress("MagicNumber")
+private fun writeIntLe(byteArray: ByteArray, offset: Int, value: Int) {
+    byteArray[offset] = value.toByte()
+    byteArray[offset + 1] = (value ushr 8).toByte()
+    byteArray[offset + 2] = (value ushr 16).toByte()
+    byteArray[offset + 3] = (value ushr 24).toByte()
+}
 
 private class WasmSourceCallbackPtrs(
     val readPtr: Int,
@@ -63,12 +80,64 @@ private fun cleanupWasmSourcePtrs(
     releaseOpaque(opaqueId)
 }
 
-private fun copyToHeap(module: JsAny, bufPtr: Int, byteArray: ByteArray, len: Int) {
-    copyToHeapJs(module, bufPtr, getByteFn = { i -> byteArray[i] }, len)
+@Suppress("MagicNumber")
+private fun copyToHeap(
+    module: JsAny,
+    bufPtr: Int,
+    byteArray: ByteArray,
+    offset: Int,
+    len: Int
+) {
+    var i = 0
+    if ((bufPtr and 3) == 0) {
+        val limit32 = len - 31
+        val baseIdx = bufPtr ushr 2
+        while (i < limit32) {
+            val srcOff = offset + i
+            writeHeap32x8(
+                module,
+                baseIdx + (i ushr 2),
+                readIntLe(byteArray, srcOff),
+                readIntLe(byteArray, srcOff + 4),
+                readIntLe(byteArray, srcOff + 8),
+                readIntLe(byteArray, srcOff + 12),
+                readIntLe(byteArray, srcOff + 16),
+                readIntLe(byteArray, srcOff + 20),
+                readIntLe(byteArray, srcOff + 24),
+                readIntLe(byteArray, srcOff + 28)
+            )
+            i += 32
+        }
+        val limit4 = len - 3
+        while (i < limit4) {
+            writeHeap32(module, bufPtr, i ushr 2, readIntLe(byteArray, offset + i))
+            i += 4
+        }
+    }
+    while (i < len) {
+        writeHeapU8(module, bufPtr + i, byteArray[offset + i].toInt() and 0xFF)
+        i++
+    }
 }
 
+@Suppress("MagicNumber", "LongParameterList")
 private fun copyFromHeap(module: JsAny, bufPtr: Int, byteArray: ByteArray, len: Int) {
-    copyFromHeapJs(module, bufPtr, setByteFn = { i, value -> byteArray[i] = value }, len)
+    copyFromHeapJs(
+        module,
+        bufPtr,
+        set32Fn = { i, w0, w1, w2, w3, w4, w5, w6, w7 ->
+            writeIntLe(byteArray, i, w0)
+            writeIntLe(byteArray, i + 4, w1)
+            writeIntLe(byteArray, i + 8, w2)
+            writeIntLe(byteArray, i + 12, w3)
+            writeIntLe(byteArray, i + 16, w4)
+            writeIntLe(byteArray, i + 20, w5)
+            writeIntLe(byteArray, i + 24, w6)
+            writeIntLe(byteArray, i + 28, w7)
+        },
+        setByteFn = { i, value -> byteArray[i] = value },
+        len = len
+    )
 }
 
 // Global map to track active Kotlin objects passed to C callbacks for Wasm
@@ -202,18 +271,34 @@ public actual object KioArch {
 
 @Suppress("SwallowedException", "TooGenericExceptionCaught")
 private fun putWasmSourceCallbacks(module: JsAny, sourceOpaqueId: Int) {
+    var readBuffer = ByteArray(INITIAL_READ_BUFFER_SIZE)
     putSourceJs(
         sourceOpaqueId,
         readFn = { bufPtr, len ->
             val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
             if (innerSource == null) {
                 -1
+            } else if (innerSource is ByteArraySeekableSource) {
+                val srcBytes = innerSource.bytes
+                val currentPos = innerSource.position().toInt()
+                if (currentPos >= srcBytes.size) {
+                    -1
+                } else {
+                    val toRead = minOf(len, srcBytes.size - currentPos)
+                    if (toRead > 0) {
+                        copyToHeap(module, bufPtr, srcBytes, currentPos, toRead)
+                        innerSource.seek((currentPos + toRead).toLong())
+                    }
+                    toRead
+                }
             } else {
                 try {
-                    val tmpArray = ByteArray(len)
-                    val readBytes = innerSource.read(tmpArray, 0, len)
+                    if (readBuffer.size < len) {
+                        readBuffer = ByteArray(len)
+                    }
+                    val readBytes = innerSource.read(readBuffer, 0, len)
                     if (readBytes > 0) {
-                        copyToHeap(module, bufPtr, tmpArray, readBytes)
+                        copyToHeap(module, bufPtr, readBuffer, 0, readBytes)
                     }
                     readBytes
                 } catch (e: Throwable) {
@@ -320,6 +405,10 @@ private class WasmArchiveReader(
 ) : ArchiveReader {
 
     private var isClosed = false
+    private var cachedWriteFuncPtr: Int = 0
+    private var cachedSinkPtr: Int = 0
+    private var cachedErrMsgPtr: Int = 0
+    private val writeBuffer = ByteArray(WRITE_CHUNK_SIZE)
 
     override fun getEntries(): List<ArchiveEntry> {
         if (isClosed) throw IllegalStateException("Reader is closed")
@@ -336,7 +425,15 @@ private class WasmArchiveReader(
                     val index = readHeap32(module, entryPtr, 0)
                     val namePtr = readHeap32(module, entryPtr, 1)
 
-                    val nameStr = wasmUtf8ToString(module, namePtr)
+                    val nameStr = if (namePtr != 0) {
+                        try {
+                            wasmUtf8ToString(module, namePtr)
+                        } finally {
+                            wasmFree(module, namePtr)
+                        }
+                    } else {
+                        ""
+                    }
                     val normalizedName = nameStr.replace('\\', '/')
 
                     // Size is int64, read using double/HEAP64 helper (offset of size is 8 bytes)
@@ -367,44 +464,40 @@ private class WasmArchiveReader(
         if (isClosed) throw IllegalStateException("Reader is closed")
 
         val sinkOpaqueId = registerOpaque(sink)
-        var sinkPtr = 0
-        var writeFuncPtr = 0
 
         try {
             // Register Kotlin Sink callback into JS global map
-            putWasmSinkCallbacks(module, sinkOpaqueId)
+            putWasmSinkCallbacks(module, sinkOpaqueId, writeBuffer)
 
-            // Register C-compatible callback pointer in Emscripten
-            writeFuncPtr = registerWriteCallback(module)
+            if (cachedWriteFuncPtr == 0) {
+                cachedWriteFuncPtr = registerWriteCallback(module)
+            }
+            if (cachedSinkPtr == 0) {
+                cachedSinkPtr = wasmMalloc(module, SINK_STRUCT_SIZE)
+            }
+            if (cachedErrMsgPtr == 0) {
+                cachedErrMsgPtr = wasmMalloc(module, ERR_MSG_BUFFER_SIZE)
+            }
 
-            // Allocate kio_sink_t (8 bytes)
-            sinkPtr = wasmMalloc(module, SINK_STRUCT_SIZE)
-            writeHeap32(module, sinkPtr, 0, writeFuncPtr)
-            writeHeap32(module, sinkPtr, 1, sinkOpaqueId)
+            writeHeap32(module, cachedSinkPtr, 0, cachedWriteFuncPtr)
+            writeHeap32(module, cachedSinkPtr, 1, sinkOpaqueId)
 
-            val errMsgPtr = wasmMalloc(module, ERR_MSG_BUFFER_SIZE)
-            try {
-                val success = wasmExtractEntry(
-                    module,
-                    handle,
-                    entry.index,
-                    sinkPtr,
-                    errMsgPtr,
-                    ERR_MSG_BUFFER_SIZE
+            val success = wasmExtractEntry(
+                module,
+                handle,
+                entry.index,
+                cachedSinkPtr,
+                cachedErrMsgPtr,
+                ERR_MSG_BUFFER_SIZE
+            )
+
+            if (success == 0) {
+                val errMsg = wasmUtf8ToString(module, cachedErrMsgPtr)
+                throw ArchiveIOException(
+                    "Failed to extract entry: ${entry.name}. Native error: $errMsg"
                 )
-
-                if (success == 0) {
-                    val errMsg = wasmUtf8ToString(module, errMsgPtr)
-                    throw ArchiveIOException(
-                        "Failed to extract entry: ${entry.name}. Native error: $errMsg"
-                    )
-                }
-            } finally {
-                wasmFree(module, errMsgPtr)
             }
         } finally {
-            if (sinkPtr != 0) wasmFree(module, sinkPtr)
-            if (writeFuncPtr != 0) wasmRemoveFunction(module, writeFuncPtr)
             removeSinkJs(sinkOpaqueId)
             releaseOpaque(sinkOpaqueId)
         }
@@ -413,6 +506,18 @@ private class WasmArchiveReader(
     override fun close() {
         if (!isClosed) {
             isClosed = true
+            if (cachedSinkPtr != 0) {
+                wasmFree(module, cachedSinkPtr)
+                cachedSinkPtr = 0
+            }
+            if (cachedErrMsgPtr != 0) {
+                wasmFree(module, cachedErrMsgPtr)
+                cachedErrMsgPtr = 0
+            }
+            if (cachedWriteFuncPtr != 0) {
+                wasmRemoveFunction(module, cachedWriteFuncPtr)
+                cachedWriteFuncPtr = 0
+            }
             wasmCloseArchive(module, handle)
             wasmFree(module, sourcePtr)
             wasmRemoveFunction(module, readFuncPtr)
@@ -430,16 +535,20 @@ private class WasmArchiveReader(
 }
 
 @Suppress("SwallowedException", "TooGenericExceptionCaught")
-private fun putWasmSinkCallbacks(module: JsAny, sinkOpaqueId: Int) {
+private fun putWasmSinkCallbacks(module: JsAny, sinkOpaqueId: Int, writeBuffer: ByteArray) {
     putSinkJs(
         sinkOpaqueId,
         writeFn = { bufPtr, len ->
             val innerSink = getOpaque(sinkOpaqueId) as? Sink
             if (innerSink != null) {
                 try {
-                    val tmpArray = ByteArray(len)
-                    copyFromHeap(module, bufPtr, tmpArray, len)
-                    innerSink.write(tmpArray, 0, len)
+                    var offset = 0
+                    while (offset < len) {
+                        val chunk = minOf(WRITE_CHUNK_SIZE, len - offset)
+                        copyFromHeap(module, bufPtr + offset, writeBuffer, chunk)
+                        innerSink.write(writeBuffer, 0, chunk)
+                        offset += chunk
+                    }
                 } catch (e: Throwable) {
                     // Safe guard to prevent throwing into C++ Wasm boundary
                 }

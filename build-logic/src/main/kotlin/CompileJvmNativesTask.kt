@@ -115,13 +115,14 @@ abstract class CompileJvmNativesTask @Inject constructor(
                 listOf(
                     "cmd",
                     "/c",
-                    "call \"${vcvarsall.absolutePath}\" amd64 && cmake -S . -B \"$buildPath\""
+                    "call \"${vcvarsall.absolutePath}\" amd64 && " +
+                        "cmake -S . -B \"$buildPath\" -DCMAKE_BUILD_TYPE=Release"
                 )
             } else {
-                listOf("cmake", "-S", ".", "-B", buildPath)
+                listOf("cmake", "-S", ".", "-B", buildPath, "-DCMAKE_BUILD_TYPE=Release")
             }
         } else {
-            listOf("cmake", "-S", ".", "-B", buildPath)
+            listOf("cmake", "-S", ".", "-B", buildPath, "-DCMAKE_BUILD_TYPE=Release")
         }
 
         val process = try {

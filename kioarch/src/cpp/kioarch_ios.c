@@ -34,6 +34,11 @@
 
 #define kInputBufSize ((size_t)1 << 18) // 256KB input buffer for LookToRead2
 
+mz_ulong mz_crc32(mz_ulong crc, const mz_uint8 *ptr, size_t buf_len) {
+    if (!ptr) return MZ_CRC32_INIT;
+    return (mz_ulong)(CrcUpdate((UInt32)crc ^ CRC_INIT_VAL, ptr, buf_len) ^ CRC_INIT_VAL);
+}
+
 static void set_error_msg(char *err_msg, int32_t err_msg_len, const char *format, ...) {
     if (err_msg == NULL || err_msg_len <= 0) return;
     va_list args;
@@ -124,11 +129,17 @@ typedef struct {
 } TarGzEntry;
 
 typedef struct {
-    mz_stream stream;
+    tinfl_decompressor decomp;
+    unsigned char dict[TINFL_LZ_DICT_SIZE];
+    size_t dict_ofs;
+    size_t dict_avail;
+    tinfl_status last_status;
+    const unsigned char *next_in;
+    size_t avail_in;
     int is_init;
     int64_t current_source_offset;
     int64_t total_decompressed;
-    unsigned char in_buf[16384];
+    unsigned char in_buf[65536];
 } GzipDecoder;
 
 // Unified ArchiveHandle for iOS
@@ -148,14 +159,20 @@ typedef struct {
     ISzAlloc alloc;
     ISzAlloc allocTemp;
     int isDbExInit;
+    UInt32 sevenZipBlockIndex;
+    Byte *sevenZipOutBuffer;
+    size_t sevenZipOutBufferSize;
 
     // miniz ZIP Context
     mz_zip_archive zipArchive;
     int isZipInit;
 
-    // .tar.gz Context
+    // .tar.gz / .tar.bz2 Context
     TarGzEntry *tarGzEntries;
     int tarGzCount;
+    int64_t tarGzRawDeflateStart;
+    GzipDecoder tarGzDecoder;
+    Bzip2Decoder tarBz2Decoder;
 } ArchiveHandleIos;
 
 // 7-Zip ISeekInStream.Read callback implementation calling custom Kotlin callback
@@ -214,14 +231,13 @@ static size_t Miniz_Write_Callback_Ios(void *pOpaque, mz_uint64 file_ofs, const 
 }
 
 static SRes init_gzip_decoder(ArchiveHandleIos *archive, GzipDecoder *decoder) {
-    memset(decoder, 0, sizeof(GzipDecoder));
-    decoder->stream.zalloc = NULL;
-    decoder->stream.zfree = NULL;
-    decoder->stream.opaque = NULL;
-    int status = mz_inflateInit2(&decoder->stream, -15);
-    if (status != MZ_OK) {
-        return SZ_ERROR_MEM;
-    }
+    (void)archive;
+    tinfl_init(&decoder->decomp);
+    decoder->dict_ofs = 0;
+    decoder->dict_avail = 0;
+    decoder->last_status = TINFL_STATUS_NEEDS_MORE_INPUT;
+    decoder->next_in = NULL;
+    decoder->avail_in = 0;
     decoder->is_init = 1;
     decoder->current_source_offset = 0;
     decoder->total_decompressed = 0;
@@ -229,10 +245,7 @@ static SRes init_gzip_decoder(ArchiveHandleIos *archive, GzipDecoder *decoder) {
 }
 
 static void free_gzip_decoder(GzipDecoder *decoder) {
-    if (decoder->is_init) {
-        mz_inflateEnd(&decoder->stream);
-        decoder->is_init = 0;
-    }
+    decoder->is_init = 0;
 }
 
 static int read_from_source(ArchiveHandleIos *archive, int64_t offset, void *buf, size_t size) {
@@ -283,27 +296,45 @@ static SRes read_decompressed_bytes(ArchiveHandleIos *archive, GzipDecoder *deco
     size_t written = 0;
     *processed = 0;
     while (written < out_len) {
-        if (decoder->stream.avail_in == 0) {
+        if (decoder->dict_avail > 0) {
+            size_t n = (decoder->dict_avail < (out_len - written)) ? decoder->dict_avail : (out_len - written);
+            memcpy((unsigned char *)out_buf + written, decoder->dict + decoder->dict_ofs, n);
+            written += n;
+            decoder->total_decompressed += (int64_t)n;
+            decoder->dict_avail -= n;
+            decoder->dict_ofs = (decoder->dict_ofs + n) & (TINFL_LZ_DICT_SIZE - 1);
+            continue;
+        }
+        if (decoder->last_status == TINFL_STATUS_DONE) {
+            break;
+        }
+        if (decoder->avail_in == 0 && decoder->last_status == TINFL_STATUS_NEEDS_MORE_INPUT) {
             int64_t src_offset = raw_deflate_start + decoder->current_source_offset;
             int r = read_from_source(archive, src_offset, decoder->in_buf, sizeof(decoder->in_buf));
             if (r < 0) return SZ_ERROR_READ;
             if (r == 0) {
                 break;
             }
-            decoder->stream.next_in = decoder->in_buf;
-            decoder->stream.avail_in = (unsigned int)r;
+            decoder->next_in = decoder->in_buf;
+            decoder->avail_in = (size_t)r;
             decoder->current_source_offset += r;
         }
-        decoder->stream.next_out = (unsigned char *)out_buf + written;
-        decoder->stream.avail_out = (unsigned int)(out_len - written);
-        int status = mz_inflate(&decoder->stream, Z_NO_FLUSH);
-        size_t decompressed_this_time = (out_len - written) - decoder->stream.avail_out;
-        written += decompressed_this_time;
-        decoder->total_decompressed += decompressed_this_time;
-        if (status == Z_STREAM_END) {
-            break;
-        }
-        if (status != Z_OK && status != Z_BUF_ERROR) {
+        size_t in_bytes = decoder->avail_in;
+        size_t out_bytes = TINFL_LZ_DICT_SIZE - decoder->dict_ofs;
+        tinfl_status status = tinfl_decompress(
+            &decoder->decomp,
+            decoder->next_in,
+            &in_bytes,
+            decoder->dict,
+            decoder->dict + decoder->dict_ofs,
+            &out_bytes,
+            TINFL_FLAG_HAS_MORE_INPUT
+        );
+        decoder->last_status = status;
+        decoder->next_in += in_bytes;
+        decoder->avail_in -= in_bytes;
+        decoder->dict_avail = out_bytes;
+        if (status < 0) {
             return SZ_ERROR_DATA;
         }
     }
@@ -312,22 +343,52 @@ static SRes read_decompressed_bytes(ArchiveHandleIos *archive, GzipDecoder *deco
 }
 
 static SRes skip_decompressed_bytes(ArchiveHandleIos *archive, GzipDecoder *decoder, size_t skip_len, int64_t raw_deflate_start) {
-    unsigned char dummy[4096];
     size_t remaining = skip_len;
     while (remaining > 0) {
-        size_t to_read = (remaining < sizeof(dummy)) ? remaining : sizeof(dummy);
-        size_t processed = 0;
-        SRes res = read_decompressed_bytes(archive, decoder, dummy, to_read, &processed, raw_deflate_start);
-        if (res != SZ_OK) return res;
-        if (processed == 0) return SZ_ERROR_DATA;
-        remaining -= processed;
+        if (decoder->dict_avail > 0) {
+            size_t n = (decoder->dict_avail < remaining) ? decoder->dict_avail : remaining;
+            remaining -= n;
+            decoder->total_decompressed += (int64_t)n;
+            decoder->dict_avail -= n;
+            decoder->dict_ofs = (decoder->dict_ofs + n) & (TINFL_LZ_DICT_SIZE - 1);
+            continue;
+        }
+        if (decoder->last_status == TINFL_STATUS_DONE) {
+            return SZ_ERROR_DATA;
+        }
+        if (decoder->avail_in == 0 && decoder->last_status == TINFL_STATUS_NEEDS_MORE_INPUT) {
+            int64_t src_offset = raw_deflate_start + decoder->current_source_offset;
+            int r = read_from_source(archive, src_offset, decoder->in_buf, sizeof(decoder->in_buf));
+            if (r <= 0) return (r < 0) ? SZ_ERROR_READ : SZ_ERROR_DATA;
+            decoder->next_in = decoder->in_buf;
+            decoder->avail_in = (size_t)r;
+            decoder->current_source_offset += r;
+        }
+        size_t in_bytes = decoder->avail_in;
+        size_t out_bytes = TINFL_LZ_DICT_SIZE - decoder->dict_ofs;
+        tinfl_status status = tinfl_decompress(
+            &decoder->decomp,
+            decoder->next_in,
+            &in_bytes,
+            decoder->dict,
+            decoder->dict + decoder->dict_ofs,
+            &out_bytes,
+            TINFL_FLAG_HAS_MORE_INPUT
+        );
+        decoder->last_status = status;
+        decoder->next_in += in_bytes;
+        decoder->avail_in -= in_bytes;
+        decoder->dict_avail = out_bytes;
+        if (status < 0) {
+            return SZ_ERROR_DATA;
+        }
     }
     return SZ_OK;
 }
 
 static SRes scan_tar_gz_entries(ArchiveHandleIos *archive, int64_t raw_deflate_start) {
-    GzipDecoder decoder;
-    SRes res = init_gzip_decoder(archive, &decoder);
+    GzipDecoder *decoder = &archive->tarGzDecoder;
+    SRes res = init_gzip_decoder(archive, decoder);
     if (res != SZ_OK) return res;
     int capacity = 16;
     archive->tarGzEntries = (TarGzEntry *)malloc(capacity * sizeof(TarGzEntry));
@@ -336,8 +397,8 @@ static SRes scan_tar_gz_entries(ArchiveHandleIos *archive, int64_t raw_deflate_s
     int consecutive_zero_blocks = 0;
     while (1) {
         size_t processed = 0;
-        int64_t header_offset = decoder.total_decompressed;
-        res = read_decompressed_bytes(archive, &decoder, &header, 512, &processed, raw_deflate_start);
+        int64_t header_offset = decoder->total_decompressed;
+        res = read_decompressed_bytes(archive, decoder, &header, 512, &processed, raw_deflate_start);
         if (res != SZ_OK) goto error;
         if (processed < 512) {
             break;
@@ -390,16 +451,16 @@ static SRes scan_tar_gz_entries(ArchiveHandleIos *archive, int64_t raw_deflate_s
         entry->size = file_size;
         entry->is_dir = is_dir;
         entry->header_offset = header_offset;
-        entry->data_offset = decoder.total_decompressed;
+        entry->data_offset = decoder->total_decompressed;
         archive->tarGzCount++;
         int64_t skip_size = (file_size + 511) & ~511;
-        res = skip_decompressed_bytes(archive, &decoder, (size_t)skip_size, raw_deflate_start);
+        res = skip_decompressed_bytes(archive, decoder, (size_t)skip_size, raw_deflate_start);
         if (res != SZ_OK) goto error;
     }
-    free_gzip_decoder(&decoder);
+    free_gzip_decoder(decoder);
     return SZ_OK;
 error:
-    free_gzip_decoder(&decoder);
+    free_gzip_decoder(decoder);
     for (int i = 0; i < archive->tarGzCount; i++) {
         free(archive->tarGzEntries[i].name);
     }
@@ -499,8 +560,8 @@ static SRes skip_bzip2_decompressed_bytes(ArchiveHandleIos *archive, Bzip2Decode
 }
 
 static SRes scan_tar_bz2_entries(ArchiveHandleIos *archive, int64_t raw_bzip2_start) {
-    Bzip2Decoder decoder;
-    SRes res = init_bzip2_decoder(archive, &decoder);
+    Bzip2Decoder *decoder = &archive->tarBz2Decoder;
+    SRes res = init_bzip2_decoder(archive, decoder);
     if (res != SZ_OK) return res;
     int capacity = 16;
     archive->tarGzEntries = (TarGzEntry *)malloc(capacity * sizeof(TarGzEntry));
@@ -509,8 +570,8 @@ static SRes scan_tar_bz2_entries(ArchiveHandleIos *archive, int64_t raw_bzip2_st
     int consecutive_zero_blocks = 0;
     while (1) {
         size_t processed = 0;
-        int64_t header_offset = decoder.total_decompressed;
-        res = read_bzip2_decompressed_bytes(archive, &decoder, &header, 512, &processed, raw_bzip2_start);
+        int64_t header_offset = decoder->total_decompressed;
+        res = read_bzip2_decompressed_bytes(archive, decoder, &header, 512, &processed, raw_bzip2_start);
         if (res != SZ_OK) goto error;
         if (processed < 512) {
             break;
@@ -563,16 +624,16 @@ static SRes scan_tar_bz2_entries(ArchiveHandleIos *archive, int64_t raw_bzip2_st
         entry->size = file_size;
         entry->is_dir = is_dir;
         entry->header_offset = header_offset;
-        entry->data_offset = decoder.total_decompressed;
+        entry->data_offset = decoder->total_decompressed;
         archive->tarGzCount++;
         int64_t skip_size = (file_size + 511) & ~511;
-        res = skip_bzip2_decompressed_bytes(archive, &decoder, (size_t)skip_size, raw_bzip2_start);
+        res = skip_bzip2_decompressed_bytes(archive, decoder, (size_t)skip_size, raw_bzip2_start);
         if (res != SZ_OK) goto error;
     }
-    free_bzip2_decoder(&decoder);
+    free_bzip2_decoder(decoder);
     return SZ_OK;
 error:
-    free_bzip2_decoder(&decoder);
+    free_bzip2_decoder(decoder);
     for (int i = 0; i < archive->tarGzCount; i++) {
         free(archive->tarGzEntries[i].name);
     }
@@ -636,6 +697,9 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
     if (is7z) {
         SRes res;
         archive->type = ARCHIVE_TYPE_7Z;
+        archive->sevenZipBlockIndex = 0xFFFFFFFF;
+        archive->sevenZipOutBuffer = NULL;
+        archive->sevenZipOutBufferSize = 0;
         archive->alloc.Alloc = SzAlloc;
         archive->alloc.Free = SzFree;
         archive->allocTemp.Alloc = SzAllocTemp;
@@ -695,6 +759,7 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
             free(archive);
             return 0;
         }
+        archive->tarGzRawDeflateStart = raw_deflate_start;
         SRes res = scan_tar_gz_entries(archive, raw_deflate_start);
         if (res != SZ_OK) {
             char err_str[128];
@@ -707,13 +772,13 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
         archive->type = ARCHIVE_TYPE_BZIP2;
         source.seek(source.opaque, 0);
 
-        Bzip2Decoder decoder;
-        SRes initRes = init_bzip2_decoder(archive, &decoder);
+        Bzip2Decoder *decoder = &archive->tarBz2Decoder;
+        SRes initRes = init_bzip2_decoder(archive, decoder);
         if (initRes == SZ_OK) {
             TarHeader header;
             size_t processed = 0;
-            SRes readRes = read_bzip2_decompressed_bytes(archive, &decoder, &header, 512, &processed, 0);
-            free_bzip2_decoder(&decoder);
+            SRes readRes = read_bzip2_decompressed_bytes(archive, decoder, &header, 512, &processed, 0);
+            free_bzip2_decoder(decoder);
 
             source.seek(source.opaque, 0);
 
@@ -764,6 +829,11 @@ void kio_close_archive(uint64_t handle) {
     ArchiveHandleIos *archive = (ArchiveHandleIos *)handle;
 
     if (archive->type == ARCHIVE_TYPE_7Z) {
+        if (archive->sevenZipOutBuffer != NULL) {
+            archive->alloc.Free(&archive->alloc, archive->sevenZipOutBuffer);
+            archive->sevenZipOutBuffer = NULL;
+            archive->sevenZipOutBufferSize = 0;
+        }
         if (archive->isDbExInit) {
             SzArEx_Free(&archive->db, &archive->alloc);
         }
@@ -775,6 +845,8 @@ void kio_close_archive(uint64_t handle) {
             mz_zip_reader_end(&archive->zipArchive);
         }
     } else if (archive->type == ARCHIVE_TYPE_TARGZ || archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
+        free_gzip_decoder(&archive->tarGzDecoder);
+        free_bzip2_decoder(&archive->tarBz2Decoder);
         if (archive->tarGzEntries != NULL) {
             for (int i = 0; i < archive->tarGzCount; i++) {
                 free(archive->tarGzEntries[i].name);
@@ -838,14 +910,14 @@ int32_t kio_get_entry(uint64_t handle, int32_t index, kio_entry_t *entry) {
                     utf8_name[utf8_len] = '\0';
                     entry->name = utf8_name; // allocated dynamically, Kotlin side must copy it.
                 } else {
-                    entry->name = "";
+                    entry->name = strdup("");
                 }
                 free(nameBuf);
             } else {
-                entry->name = "";
+                entry->name = strdup("");
             }
         } else {
-            entry->name = "";
+            entry->name = strdup("");
         }
         entry->size = (int64_t)SzArEx_GetFileSize(&archive->db, (size_t)index);
         entry->is_dir = SzArEx_IsDir(&archive->db, (size_t)index) ? 1 : 0;
@@ -879,16 +951,13 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
     if (index < 0 || index >= count) return 0;
 
     if (archive->type == ARCHIVE_TYPE_7Z) {
-        UInt32 blockIndex = 0xFFFFFFFF;
-        Byte *outBuffer = NULL;
-        size_t outBufferSize = 0;
         size_t offset = 0;
         size_t outSizeProcessed = 0;
         SRes res;
 
         res = SzArEx_Extract(
             &archive->db, &archive->lookStream.vt, (UInt32)index,
-            &blockIndex, &outBuffer, &outBufferSize,
+            &archive->sevenZipBlockIndex, &archive->sevenZipOutBuffer, &archive->sevenZipOutBufferSize,
             &offset, &outSizeProcessed,
             &archive->alloc, &archive->allocTemp
         );
@@ -897,13 +966,16 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
             char err_str[128];
             get_7z_error_str(res, err_str, sizeof(err_str));
             set_error_msg(err_msg, err_msg_len, "Failed to extract 7z entry: %s", err_str);
-            if (outBuffer != NULL) {
-                archive->alloc.Free(&archive->alloc, outBuffer);
+            if (archive->sevenZipOutBuffer != NULL) {
+                archive->alloc.Free(&archive->alloc, archive->sevenZipOutBuffer);
+                archive->sevenZipOutBuffer = NULL;
+                archive->sevenZipOutBufferSize = 0;
             }
+            archive->sevenZipBlockIndex = 0xFFFFFFFF;
             return 0;
         }
 
-        if (outSizeProcessed > 0 && outBuffer != NULL) {
+        if (outSizeProcessed > 0 && archive->sevenZipOutBuffer != NULL) {
             size_t bytesWritten = 0;
             size_t chunkSize = 65536;
 
@@ -911,13 +983,9 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
                 size_t remaining = outSizeProcessed - bytesWritten;
                 size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
 
-                sink.write(sink.opaque, outBuffer + offset + bytesWritten, (int32_t)currentChunk);
+                sink.write(sink.opaque, archive->sevenZipOutBuffer + offset + bytesWritten, (int32_t)currentChunk);
                 bytesWritten += currentChunk;
             }
-        }
-
-        if (outBuffer != NULL) {
-            archive->alloc.Free(&archive->alloc, outBuffer);
         }
     } else if (archive->type == ARCHIVE_TYPE_ZIP) {
         mz_bool success = mz_zip_reader_extract_to_callback(&archive->zipArchive, (mz_uint)index, Miniz_Write_Callback_Ios, &sink, 0);
@@ -928,24 +996,30 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
         }
     } else if (archive->type == ARCHIVE_TYPE_TARGZ) {
         TarGzEntry *entry = &archive->tarGzEntries[index];
-        int64_t raw_deflate_start = skip_gzip_header(archive, 0);
+        int64_t raw_deflate_start = archive->tarGzRawDeflateStart;
         if (raw_deflate_start < 0) return 0;
 
-        GzipDecoder decoder;
-        SRes res = init_gzip_decoder(archive, &decoder);
-        if (res != SZ_OK) return 0;
+        GzipDecoder *decoder = &archive->tarGzDecoder;
+        SRes res = SZ_OK;
+        if (!decoder->is_init || decoder->total_decompressed > entry->data_offset) {
+            free_gzip_decoder(decoder);
+            res = init_gzip_decoder(archive, decoder);
+            if (res != SZ_OK) return 0;
+        }
 
-        res = skip_decompressed_bytes(archive, &decoder, (size_t)entry->data_offset, raw_deflate_start);
-        if (res != SZ_OK) {
-            free_gzip_decoder(&decoder);
-            return 0;
+        int64_t skip_bytes = entry->data_offset - decoder->total_decompressed;
+        if (skip_bytes > 0) {
+            res = skip_decompressed_bytes(archive, decoder, (size_t)skip_bytes, raw_deflate_start);
+            if (res != SZ_OK) {
+                free_gzip_decoder(decoder);
+                return 0;
+            }
         }
 
         size_t bytesWritten = 0;
         size_t chunkSize = 65536;
         unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
         if (outBuffer == NULL) {
-            free_gzip_decoder(&decoder);
             return 0;
         }
 
@@ -954,7 +1028,7 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
             size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
             size_t processed = 0;
 
-            res = read_decompressed_bytes(archive, &decoder, outBuffer, currentChunk, &processed, raw_deflate_start);
+            res = read_decompressed_bytes(archive, decoder, outBuffer, currentChunk, &processed, raw_deflate_start);
             if (res != SZ_OK || processed == 0) {
                 break;
             }
@@ -964,24 +1038,31 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
         }
 
         free(outBuffer);
-        free_gzip_decoder(&decoder);
 
         if (res != SZ_OK || bytesWritten < (size_t)entry->size) {
+            free_gzip_decoder(decoder);
             set_error_msg(err_msg, err_msg_len, "Failed to decompress Gzip stream during extraction");
             return 0;
         }
     } else if (archive->type == ARCHIVE_TYPE_TARBZ2 || archive->type == ARCHIVE_TYPE_BZIP2) {
         TarGzEntry *entry = &archive->tarGzEntries[index];
 
-        Bzip2Decoder decoder;
-        SRes res = init_bzip2_decoder(archive, &decoder);
-        if (res != SZ_OK) return 0;
+        Bzip2Decoder *decoder = &archive->tarBz2Decoder;
+        SRes res = SZ_OK;
+        if (!decoder->is_init || archive->type == ARCHIVE_TYPE_BZIP2 || decoder->total_decompressed > entry->data_offset) {
+            free_bzip2_decoder(decoder);
+            res = init_bzip2_decoder(archive, decoder);
+            if (res != SZ_OK) return 0;
+        }
 
         if (archive->type == ARCHIVE_TYPE_TARBZ2) {
-            res = skip_bzip2_decompressed_bytes(archive, &decoder, (size_t)entry->data_offset, 0);
-            if (res != SZ_OK) {
-                free_bzip2_decoder(&decoder);
-                return 0;
+            int64_t skip_bytes = entry->data_offset - decoder->total_decompressed;
+            if (skip_bytes > 0) {
+                res = skip_bzip2_decompressed_bytes(archive, decoder, (size_t)skip_bytes, 0);
+                if (res != SZ_OK) {
+                    free_bzip2_decoder(decoder);
+                    return 0;
+                }
             }
         }
 
@@ -989,7 +1070,6 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
         size_t chunkSize = 65536;
         unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
         if (outBuffer == NULL) {
-            free_bzip2_decoder(&decoder);
             return 0;
         }
 
@@ -1001,7 +1081,7 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
             size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
             size_t processed = 0;
 
-            res = read_bzip2_decompressed_bytes(archive, &decoder, outBuffer, currentChunk, &processed, 0);
+            res = read_bzip2_decompressed_bytes(archive, decoder, outBuffer, currentChunk, &processed, 0);
             if (res != SZ_OK || processed == 0) {
                 break;
             }
@@ -1011,9 +1091,9 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
         }
 
         free(outBuffer);
-        free_bzip2_decoder(&decoder);
 
         if (res != SZ_OK || (!isInfinite && bytesWritten < (size_t)targetSize)) {
+            free_bzip2_decoder(decoder);
             set_error_msg(err_msg, err_msg_len, "Failed to decompress Bzip2 stream during extraction");
             return 0;
         }

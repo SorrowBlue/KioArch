@@ -22,17 +22,21 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 
 /**
- * A JVM/Android-specific [SeekableSource] implementation wrapping a [FileChannel] for NIO-based random access.
+ * A JVM/Android-specific [DirectSeekableSource] implementation wrapping a [FileChannel] for NIO-based random access.
  *
  * @param path the Java NIO path to wrap
  */
-public class PathSeekableSource(path: Path) : SeekableSource {
+public class PathSeekableSource(path: Path) : DirectSeekableSource {
     private val channel = FileChannel.open(path, StandardOpenOption.READ)
+
+    public override fun read(byteBuffer: ByteBuffer): Int {
+        val readBytes = channel.read(byteBuffer)
+        return if (readBytes == 0 && channel.position() >= channel.size()) -1 else readBytes
+    }
 
     public override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         val byteBuffer = ByteBuffer.wrap(buffer, offset, length)
-        val readBytes = channel.read(byteBuffer)
-        return if (readBytes == 0 && channel.position() >= channel.size()) -1 else readBytes
+        return read(byteBuffer)
     }
 
     public override fun seek(position: Long) {

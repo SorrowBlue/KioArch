@@ -1,77 +1,63 @@
 import org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest
 import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest
 
-val testGeneratorClasspath = configurations.create("testGeneratorClasspath") {
+val testGeneratorClasspath = configurations.register("testGeneratorClasspath") {
     isCanBeConsumed = false
     isCanBeResolved = true
 }
 
 dependencies {
-    testGeneratorClasspath(libs.commons.compress)
-    testGeneratorClasspath(libs.xz)
+    add(testGeneratorClasspath.name, libs.commons.compress)
+    add(testGeneratorClasspath.name, libs.xz)
 }
 
-val generateTestFiles = tasks.register("generateTestFiles", GenerateTestFilesTask::class.java) {
+val generateTestFiles = tasks.register<GenerateTestFilesTask>("generateTestFiles") {
     group = "verification"
     description = "Generates test archives for testing"
     generatorClasspath.from(testGeneratorClasspath)
     outputDir.set(layout.buildDirectory.dir("tmp/large_tests"))
 }
 
-tasks.withType(KotlinNativeTest::class.java).configureEach {
-    dependsOn(generateTestFiles)
-    val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
-    val testFiles = mapOf(
-        "TEST_ZIP_PATH" to "$testDir/test.zip",
-        "TEST_7Z_PATH" to "$testDir/test.7z",
-        "TEST_TARGZ_PATH" to "$testDir/test.tar.gz",
-        "TEST_BZ2_PATH" to "$testDir/test.bz2",
-        "TEST_TARBZ2_PATH" to "$testDir/test.tar.bz2",
-        "TEST_SJIS_ZIP_PATH" to "$testDir/test_sjis.zip",
-        "TEST_PATH_NORMAL_ZIP_PATH" to "$testDir/test_path_normal.zip",
-        "TEST_BULK_ZIP_PATH" to "$testDir/test_bulk.zip",
-        "TEST_EXT_ZIP_PATH" to "$testDir/test_ext.zip",
-        "LARGE_ZIP_PATH" to "$testDir/large.zip",
-        "LARGE_7Z_PATH" to "$testDir/large.7z",
-        "LARGE_TARGZ_PATH" to "$testDir/large.tar.gz"
-    )
-    testFiles.forEach { (key, value) ->
+fun testEnvVars(testDir: String): Map<String, String> = mapOf(
+    "TEST_ZIP_PATH" to "$testDir/test.zip",
+    "TEST_7Z_PATH" to "$testDir/test.7z",
+    "TEST_TARGZ_PATH" to "$testDir/test.tar.gz",
+    "TEST_BZ2_PATH" to "$testDir/test.bz2",
+    "TEST_TARBZ2_PATH" to "$testDir/test.tar.bz2",
+    "TEST_SJIS_ZIP_PATH" to "$testDir/test_sjis.zip",
+    "TEST_PATH_NORMAL_ZIP_PATH" to "$testDir/test_path_normal.zip",
+    "TEST_BULK_ZIP_PATH" to "$testDir/test_bulk.zip",
+    "TEST_EXT_ZIP_PATH" to "$testDir/test_ext.zip",
+    "LARGE_ZIP_PATH" to "$testDir/large.zip",
+    "LARGE_7Z_PATH" to "$testDir/large.7z",
+    "LARGE_TARGZ_PATH" to "$testDir/large.tar.gz"
+)
+
+tasks.withType<KotlinNativeTest>().configureEach {
+    val outputDirProvider = generateTestFiles.flatMap { it.outputDir }
+    inputs.dir(outputDirProvider)
+    val testDir = outputDirProvider.get().asFile.absolutePath
+    testEnvVars(testDir).forEach { (key, value) ->
         environment(key, value)
         environment("SIMCTL_CHILD_$key", value)
     }
 }
 
-tasks.withType(KotlinJsTest::class.java).configureEach {
-    dependsOn(generateTestFiles)
-    val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
-    environment("TEST_ZIP_PATH", "$testDir/test.zip")
-    environment("TEST_7Z_PATH", "$testDir/test.7z")
-    environment("TEST_TARGZ_PATH", "$testDir/test.tar.gz")
-    environment("TEST_BZ2_PATH", "$testDir/test.bz2")
-    environment("TEST_TARBZ2_PATH", "$testDir/test.tar.bz2")
-    environment("TEST_SJIS_ZIP_PATH", "$testDir/test_sjis.zip")
-    environment("TEST_PATH_NORMAL_ZIP_PATH", "$testDir/test_path_normal.zip")
-    environment("TEST_BULK_ZIP_PATH", "$testDir/test_bulk.zip")
-    environment("TEST_EXT_ZIP_PATH", "$testDir/test_ext.zip")
-    environment("LARGE_ZIP_PATH", "$testDir/large.zip")
-    environment("LARGE_7Z_PATH", "$testDir/large.7z")
-    environment("LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
+tasks.withType<KotlinJsTest>().configureEach {
+    val outputDirProvider = generateTestFiles.flatMap { it.outputDir }
+    inputs.dir(outputDirProvider)
+    val testDir = outputDirProvider.get().asFile.absolutePath
+    testEnvVars(testDir).forEach { (key, value) ->
+        environment(key, value)
+    }
 }
 
-tasks.withType(Test::class.java).configureEach {
-    dependsOn(generateTestFiles)
+tasks.withType<Test>().configureEach {
+    val outputDirProvider = generateTestFiles.flatMap { it.outputDir }
+    inputs.dir(outputDirProvider)
     failOnNoDiscoveredTests.set(false)
-    val testDir = layout.buildDirectory.dir("tmp/large_tests").get().asFile.absolutePath
-    systemProperty("TEST_ZIP_PATH", "$testDir/test.zip")
-    systemProperty("TEST_7Z_PATH", "$testDir/test.7z")
-    systemProperty("TEST_TARGZ_PATH", "$testDir/test.tar.gz")
-    systemProperty("TEST_BZ2_PATH", "$testDir/test.bz2")
-    systemProperty("TEST_TARBZ2_PATH", "$testDir/test.tar.bz2")
-    systemProperty("TEST_SJIS_ZIP_PATH", "$testDir/test_sjis.zip")
-    systemProperty("TEST_PATH_NORMAL_ZIP_PATH", "$testDir/test_path_normal.zip")
-    systemProperty("TEST_BULK_ZIP_PATH", "$testDir/test_bulk.zip")
-    systemProperty("TEST_EXT_ZIP_PATH", "$testDir/test_ext.zip")
-    systemProperty("LARGE_ZIP_PATH", "$testDir/large.zip")
-    systemProperty("LARGE_7Z_PATH", "$testDir/large.7z")
-    systemProperty("LARGE_TARGZ_PATH", "$testDir/large.tar.gz")
+    val testDir = outputDirProvider.get().asFile.absolutePath
+    testEnvVars(testDir).forEach { (key, value) ->
+        systemProperty(key, value)
+    }
 }

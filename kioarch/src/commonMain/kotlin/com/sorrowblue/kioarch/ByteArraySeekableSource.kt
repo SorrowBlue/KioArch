@@ -19,16 +19,20 @@ package com.sorrowblue.kioarch
 /**
  * An in-memory implementation of [SeekableSource] wrapping a [ByteArray].
  */
-public class ByteArraySeekableSource(private val bytes: ByteArray) : SeekableSource {
+public class ByteArraySeekableSource(internal val bytes: ByteArray) : SeekableSource {
     private var pos = 0L
 
     public override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (pos >= bytes.size) return -1
         val available = bytes.size - pos
         val toRead = if (length > available) available.toInt() else length
-        for (i in 0 until toRead) {
-            buffer[offset + i] = bytes[(pos + i).toInt()]
-        }
+        val start = pos.toInt()
+        bytes.copyInto(
+            destination = buffer,
+            destinationOffset = offset,
+            startIndex = start,
+            endIndex = start + toRead
+        )
         pos += toRead
         return toRead
     }

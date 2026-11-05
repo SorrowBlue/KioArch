@@ -1,18 +1,38 @@
+/*
+ * Copyright 2026 SorrowBlue
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.sorrowblue.kioarch
 
-import java.io.OutputStream
 import java.nio.ByteBuffer
-import java.nio.channels.Channels
-import java.nio.channels.WritableByteChannel
 import kotlinx.io.Sink
+import kotlinx.io.write
 
-internal class SeekableArchiveReader(private val source: SeekableSource) : ArchiveReader {
+internal class SeekableArchiveReader(
+    private val source: SeekableSource,
+    useDirectOutput: Boolean = true
+) : ArchiveReader {
 
     private val handle = KioArchJni.openArchive(source)
 
     private val lock = Any()
 
     private var isClosed = false
+
+    private var directBuffer: ByteBuffer? =
+        if (useDirectOutput) ByteBuffer.allocateDirect(DIRECT_BUFFER_SIZE) else null
 
     init {
         require(handle != 0L) {
@@ -40,97 +60,41 @@ internal class SeekableArchiveReader(private val source: SeekableSource) : Archi
         list
     }
 
-    @Suppress("SwallowedException", "TooGenericExceptionCaught")
     override fun extractEntry(entry: ArchiveEntry, sink: Sink) {
         synchronized(lock) {
             check(!isClosed) { "Reader is closed" }
-            var directSuccess = false
-            try {
-                val targetChannel = findWritableChannel(sink)
-                if (targetChannel != null) {
-                    directSuccess = KioArchJni.extractEntryDirect(
-                        handle,
-                        entry.index,
-                        object : DirectExtractCallback {
-                            override fun onData(buffer: ByteBuffer) {
-                                while (buffer.hasRemaining()) {
-                                    targetChannel.write(buffer)
-                                }
-                            }
+            val workBuffer = directBuffer
+            val success = if (workBuffer != null) {
+                KioArchJni.extractEntryDirect(
+                    handle,
+                    entry.index,
+                    workBuffer
+                ) { buffer, length ->
+                    var offset = 0
+                    while (offset < length) {
+                        val chunk = minOf(WRITE_CHUNK_SIZE, length - offset)
+                        buffer.limit(offset + chunk)
+                        buffer.position(offset)
+                        while (buffer.hasRemaining()) {
+                            sink.write(buffer)
                         }
-                    )
-                } else {
-                    val targetStream = findOutputStream(sink)
-                    if (targetStream != null) {
-                        val channel = Channels.newChannel(targetStream)
-                        directSuccess = KioArchJni.extractEntryDirect(
-                            handle,
-                            entry.index,
-                            object : DirectExtractCallback {
-                                override fun onData(buffer: ByteBuffer) {
-                                    while (buffer.hasRemaining()) {
-                                        channel.write(buffer)
-                                    }
-                                }
-                            }
-                        )
+                        offset += chunk
                     }
                 }
-            } catch (e: Throwable) {
-                directSuccess = false
+            } else {
+                KioArchJni.extractEntry(handle, entry.index, sink)
             }
-
-            if (!directSuccess) {
-                check(KioArchJni.extractEntry(handle, entry.index, sink)) {
-                    "Failed to extract entry: ${entry.name}"
-                }
+            check(success) {
+                "Failed to extract entry: ${entry.name}"
             }
         }
-    }
-
-    private val channelFields = setOf("sink", "delegate", "out", "channel")
-    private val streamFields = setOf("sink", "delegate", "out", "outputStream")
-
-    private fun findWritableChannel(sink: Any): WritableByteChannel? {
-        var current: Any? = sink
-        while (current != null) {
-            if (current is WritableByteChannel) return current
-            current = findNextField(current, WritableByteChannel::class.java, channelFields)
-        }
-        return null
-    }
-
-    private fun findOutputStream(sink: Any): OutputStream? {
-        var current: Any? = sink
-        while (current != null) {
-            if (current is OutputStream) return current
-            current = findNextField(current, OutputStream::class.java, streamFields)
-        }
-        return null
-    }
-
-    @Suppress("SwallowedException", "TooGenericExceptionCaught")
-    private fun findNextField(obj: Any, targetType: Class<*>, candidateNames: Set<String>): Any? {
-        for (f in obj.javaClass.declaredFields) {
-            try {
-                if (targetType.isAssignableFrom(f.type) || f.name in candidateNames) {
-                    f.isAccessible = true
-                    val value = f.get(obj)
-                    if (value != null && value !== obj) {
-                        return value
-                    }
-                }
-            } catch (e: Throwable) {
-                // Ignore Reflection errors safely
-            }
-        }
-        return null
     }
 
     override fun close() {
         synchronized(lock) {
             if (!isClosed) {
                 isClosed = true
+                directBuffer = null
                 try {
                     KioArchJni.closeArchive(handle)
                 } finally {
@@ -138,5 +102,10 @@ internal class SeekableArchiveReader(private val source: SeekableSource) : Archi
                 }
             }
         }
+    }
+
+    private companion object {
+        private const val DIRECT_BUFFER_SIZE = 64 * 1024
+        private const val WRITE_CHUNK_SIZE = 32 * 1024
     }
 }

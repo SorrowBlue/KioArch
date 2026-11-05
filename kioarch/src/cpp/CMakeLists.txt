@@ -61,8 +61,19 @@ set(BZIP2_SOURCES
 
 # Set preprocessor flags
 # Z7_ST: Single-threaded build (highly portable, avoids multi-threading overhead)
+# MINIZ_*: Enable 64-bit bitbuffer, unaligned load/store via memcpy, and external 7z CRC32
 # _GNU_SOURCE: For Linux builds
-add_definitions(-DZ7_ST)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+add_definitions(
+    -DZ7_ST
+    -DMINIZ_LITTLE_ENDIAN=1
+    -DMINIZ_USE_UNALIGNED_LOADS_AND_STORES=1
+    -DMINIZ_UNALIGNED_USE_MEMCPY=1
+    -DUSE_EXTERNAL_MZCRC=1
+)
 
 if(UNIX)
     add_definitions(-D_GNU_SOURCE)
@@ -81,7 +92,9 @@ if(EMSCRIPTEN)
         ${7ZIP_SOURCES}
         ${BZIP2_SOURCES}
     )
+    target_compile_options(kioarch PRIVATE -O3 -DNDEBUG)
     target_link_options(kioarch PRIVATE
+        "-O3"
         "-sEXPORTED_FUNCTIONS=['_kio_open_archive','_kio_open_archive_wasm','_kio_close_archive','_kio_get_entry_count','_kio_get_entry','_kio_extract_entry','_kio_extract_entry_wasm','_malloc','_free']"
         "-sEXPORTED_RUNTIME_METHODS=['cwrap','ccall','addFunction','removeFunction','UTF8ToString','HEAP8','HEAPU8','HEAP16','HEAPU16','HEAP32','HEAPU32','HEAPF32','HEAPF64','HEAP64','HEAPU64']"
         "-sALLOW_TABLE_GROWTH=1"
@@ -109,6 +122,7 @@ elseif(IOS)
         ${7ZIP_SOURCES}
         ${BZIP2_SOURCES}
     )
+    target_compile_options(kioarch PRIVATE -O3 -DNDEBUG)
 else()
     add_library(kioarch SHARED
         kioarch_jni.c
@@ -119,6 +133,11 @@ else()
         ${7ZIP_SOURCES}
         ${BZIP2_SOURCES}
     )
+    if(MSVC)
+        target_compile_options(kioarch PRIVATE /O2 /DNDEBUG)
+    else()
+        target_compile_options(kioarch PRIVATE -O3 -DNDEBUG)
+    endif()
 endif()
 
 # Link libraries

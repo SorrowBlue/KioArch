@@ -18,6 +18,8 @@ dependencies {
     compileOnly(files(currentLibs.javaClass.superclass.protectionDomain.codeSource.location))
     implementation(libs.commons.compress)
     implementation(libs.xz)
+    implementation(libs.xchart)
+    implementation(libs.vectorgraphics2d)
     testImplementation(kotlin("test"))
     detektPlugins(libs.bundles.detekt)
 }
@@ -27,7 +29,7 @@ tasks.test {
 }
 
 detekt {
-    toolVersion = "2.0.0-alpha.3"
+    toolVersion.set(libs.versions.detekt.asProvider())
     // build-logicの親ディレクトリ（メインプロジェクトルート）にある config/detekt/detekt.yml を参照
     config.setFrom(files(rootDir.parentFile.resolve("config/detekt/detekt.yml")))
     basePath.set(rootProject.layout.projectDirectory)
