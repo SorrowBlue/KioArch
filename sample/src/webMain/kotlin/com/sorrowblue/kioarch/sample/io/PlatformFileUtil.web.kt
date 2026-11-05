@@ -12,12 +12,8 @@ internal actual fun PlatformFile.sink2(): RawSink {
     TODO("Not yet implemented")
 }
 
-internal actual fun PlatformFile.createDirectories2() {
-}
+internal actual fun PlatformFile.createDirectories2() = Unit
 
-internal actual fun PlatformFile.createFile(
-    context: PlatformContext,
-    name: String
-): PlatformFile {
+internal actual fun PlatformFile.createFile(context: PlatformContext, name: String): PlatformFile {
     TODO("Not yet implemented")
 }

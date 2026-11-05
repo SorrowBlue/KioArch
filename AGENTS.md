@@ -41,9 +41,9 @@ AIエージェントの具体的な振る舞い、開発ルール、および手
   ./gradlew jsNodeTest
   ```
 - **静的解析 (Detekt)**:
-  通常の `detekt` タスクのほか、各プラットフォームやテストソースセットを網羅的に静的解析する場合は、以下の包括的コマンドを使用してください。
+  通常の `detekt` タスクのほか、各プラットフォームやテストソースセット、`build-logic` を網羅的に静的解析する場合は、以下のコマンドを使用してください。
   ```powershell
-  ./gradlew :build-logic:detektMain reportMerge detektDebug detektDebugAndroidTest detektDebugUnitTest detektDeviceTestAndroid detektHostTestAndroid detektMain detektMainAndroid detektMainJvm detektRelease detektTest detektTestJvm --continue
+  ./gradlew detektAll --continue
   ```
 
 ---

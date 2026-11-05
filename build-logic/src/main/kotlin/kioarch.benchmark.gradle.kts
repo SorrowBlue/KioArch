@@ -70,6 +70,7 @@ tasks.matching {
     it.name == "connectedAndroidDeviceTest" ||
         it.name == "jsSmokeBenchmark" ||
         it.name == "wasmJsSmokeBenchmark" ||
+        it.name == "iosSimulatorArm64SmokeBenchmark" ||
         it.name == "jvmSmokeBenchmark"
 }.configureEach {
     finalizedBy(updateBenchmarkCharts)

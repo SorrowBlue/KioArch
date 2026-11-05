@@ -8,16 +8,20 @@ import io.github.vinceglb.filekit.PlatformFile
 import io.github.vinceglb.filekit.path
 import io.github.vinceglb.filekit.readBytes
 
-@JsFun("() => (typeof process !== 'undefined' && process.versions != null && process.versions.node != null)")
+@JsFun(
+    """() => (
+        typeof process !== 'undefined' &&
+        process.versions != null &&
+        process.versions.node != null
+    )"""
+)
 private external fun isNodeJs(): Boolean
 
 internal actual suspend fun createSeekableSource(
     context: PlatformContext,
     file: PlatformFile
-): SeekableSource {
-    return if (isNodeJs()) {
-        NodeFileSeekableSource(file.path, wasmModule!!)
-    } else {
-        com.sorrowblue.kioarch.ByteArraySeekableSource(file.readBytes())
-    }
+): SeekableSource = if (isNodeJs()) {
+    NodeFileSeekableSource(file.path, wasmModule!!)
+} else {
+    com.sorrowblue.kioarch.ByteArraySeekableSource(file.readBytes())
 }

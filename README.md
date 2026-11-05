@@ -193,7 +193,7 @@ Running `:benchmark:jvmGcBenchmark` or `:benchmark:connectedAndroidDeviceTest` a
 .\gradlew.bat :benchmark:connectedAndroidDeviceTest
 
 # Multiplatform smoke benchmarks (JS / WasmJs / iOS)
-.\gradlew.bat :benchmark:jsSmokeBenchmark :benchmark:wasmJsSmokeBenchmark
+.\gradlew.bat :benchmark:jsSmokeBenchmark :benchmark:wasmJsSmokeBenchmark :benchmark:iosSimulatorArm64SmokeBenchmark
 
 # Regenerate SVG charts from existing benchmark JSON reports
 .\gradlew.bat :benchmark:updateBenchmarkCharts

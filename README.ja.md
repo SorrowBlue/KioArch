@@ -177,7 +177,7 @@ ART の Large Object Space (LOS) への `byte[]` 割り当てを排除し、Dire
 
 ### 3. マルチプラットフォーム展開スループット (`KioArch`)
 
-`KioArch` 単体で各プロファイル（`small` / `medium` / `large` × `ZIP` / `7z` / `TAR.GZ`）を展開した際のプラットフォーム別スループット（JVM / Android / JS / WasmJs）。
+`KioArch` 単体で各プロファイル（`small` / `medium` / `large` × `ZIP` / `7z` / `TAR.GZ`）を展開した際のプラットフォーム別スループット（JVM / Android / JS / WasmJs / iOS）。
 
 ![Multiplatform Extraction Throughput (MiB/s)](docs/assets/benchmark-platform-throughput.svg)
 
@@ -193,7 +193,7 @@ ART の Large Object Space (LOS) への `byte[]` 割り当てを排除し、Dire
 .\gradlew.bat :benchmark:connectedAndroidDeviceTest
 
 # マルチプラットフォーム スモークベンチマーク (JS / WasmJs / iOS)
-.\gradlew.bat :benchmark:jsSmokeBenchmark :benchmark:wasmJsSmokeBenchmark
+.\gradlew.bat :benchmark:jsSmokeBenchmark :benchmark:wasmJsSmokeBenchmark :benchmark:iosSimulatorArm64SmokeBenchmark
 
 # 既存のベンチマーク結果 JSON から SVG グラフ 3 枚を再生成
 .\gradlew.bat :benchmark:updateBenchmarkCharts

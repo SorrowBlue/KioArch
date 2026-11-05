@@ -1,5 +1,12 @@
 import kotlinx.benchmark.gradle.JvmBenchmarkTarget
+import kotlinx.benchmark.gradle.NativeBenchmarkExec
+import kotlinx.benchmark.gradle.NativeBenchmarkTarget
+import kotlinx.benchmark.gradle.createNativeBenchmarkExecTask
+import kotlinx.benchmark.gradle.internal.KotlinxBenchmarkPluginInternalApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeCompilation
+import org.jetbrains.kotlin.konan.target.HostManager
+import org.jetbrains.kotlin.konan.target.KonanTarget
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -125,5 +132,62 @@ benchmark {
         register("iosX64")
         register("iosArm64")
         register("iosSimulatorArm64")
+    }
+}
+
+afterEvaluate {
+    val simTargetName = when (HostManager.host) {
+        KonanTarget.MACOS_ARM64 -> "iosSimulatorArm64"
+        KonanTarget.MACOS_X64 -> "iosX64"
+        else -> null
+    }
+    if (simTargetName != null) {
+        val target = benchmark.targets.findByName(simTargetName) as? NativeBenchmarkTarget
+        if (target != null) {
+            val helperClass = target.javaClass.classLoader
+                .loadClass("kotlinx.benchmark.gradle.NativeMultiplatformTasksKt")
+            val genMethod = helperClass.getDeclaredMethod(
+                "createNativeBenchmarkGenerateSourceTask",
+                Project::class.java,
+                NativeBenchmarkTarget::class.java,
+            ).apply { isAccessible = true }
+            val compileMethod = helperClass.getDeclaredMethod(
+                "createNativeBenchmarkCompileTask",
+                Project::class.java,
+                NativeBenchmarkTarget::class.java,
+            ).apply { isAccessible = true }
+
+            genMethod.invoke(null, project, target)
+            val benchmarkCompilation =
+                compileMethod.invoke(null, project, target) as KotlinNativeCompilation
+            @OptIn(KotlinxBenchmarkPluginInternalApi::class)
+            benchmark.configurations.forEach { config ->
+                project.createNativeBenchmarkExecTask(
+                    config,
+                    target,
+                    benchmarkCompilation,
+                )
+            }
+            tasks.withType<NativeBenchmarkExec>().matching {
+                it.name.startsWith(simTargetName)
+            }.configureEach {
+                doFirst {
+                    val kexeFile = executable
+                    if (kexeFile.extension == "kexe") {
+                        val wrapper = File(kexeFile.parentFile, "${kexeFile.nameWithoutExtension}-simctl.sh")
+                        wrapper.writeText(
+                            """
+                            #!/bin/sh
+                            set -e
+                            UDID=${'$'}(xcrun simctl list devices available | grep -E "iPhone.*\(([0-9A-F-]{36})\)" | tail -n 1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+                            exec xcrun simctl spawn --standalone "${'$'}UDID" "${kexeFile.absolutePath}" "${'$'}@"
+                            """.trimIndent() + "\n",
+                        )
+                        wrapper.setExecutable(true)
+                        executable = wrapper
+                    }
+                }
+            }
+        }
     }
 }
