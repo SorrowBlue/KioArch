@@ -55,9 +55,7 @@ import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.closeFile
 import platform.Foundation.create
 import platform.Foundation.offsetInFile
-import platform.Foundation.readDataUpToLength
 import platform.Foundation.seekToEndOfFile
-import platform.Foundation.seekToOffset
 import platform.posix.SEEK_END
 import platform.posix.SEEK_SET
 import platform.posix.fclose
