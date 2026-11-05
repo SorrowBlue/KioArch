@@ -160,3 +160,11 @@ JNI境界でのゼロコピー（`DirectSeekableSource` や `NewDirectByteBuffer
   - Gradleの `cinterops` 設定で、ターゲットアーキテクチャ（`Release-iphoneos` や `Release-iphonesimulator`）に応じたパスを `extraOpts("-libraryPath", libDir.absolutePath)` で渡す。
   - これにより、Kotlin/Nativeが `.klib` 内に静的ライブラリ（`.a`）を自動的に埋め込み（embed）、下流のプロジェクトが特別なリンカー設定なしに自動リンクできるようになります。
 
+### ⑯ `kotlinx-benchmark` における iOS シミュレータターゲットのスキップ回避と `xcrun simctl spawn --standalone` 実行
+- **Problem**:
+  `kotlinx-benchmark` プラグイン（`NativeMultiplatformTasks.kt`）は `compilation.konanTarget != HostManager.host` の場合にベンチマークタスク生成をスキップするため、macOS ホスト（`macos_arm64` / `macos_x64`）上であっても `iosSimulatorArm64` や `iosX64` のベンチマークタスク（`iosSimulatorArm64Benchmark` / `iosSimulatorArm64SmokeBenchmark`）が自動登録されません。また、生成されたシミュレータ用 `.kexe` バイナリをホストプロセスとして直接起動すると `dyld: DYLD_ROOT_PATH not set for simulator program` で異常終了（SIGABRT）します。
+- **Solution**:
+  - `benchmark/build.gradle.kts` の `afterEvaluate` で、macOS ホストに対応するシミュレータターゲット（`iosSimulatorArm64` または `iosX64`）に対して `NativeMultiplatformTasksKt` のタスク生成メソッドを呼び出してタスクを登録する。
+  - `NativeBenchmarkExec` の `doFirst` で `.kexe` バイナリを `xcrun simctl spawn --standalone <UDID> <kexe> "$@"` 経由で起動するラッパースクリプトに差し替えることで、UI シミュレータの事前起動なしにヘッドレスで iOS シミュレータベンチマークを実行・計測できます。
+
+
