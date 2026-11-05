@@ -17,44 +17,87 @@
 
 package com.sorrowblue.kioarch
 
-import kotlinx.cinterop.*
-import kotlinx.io.files.Path
+import com.sorrowblue.kioarch.internal.cinterop.kio_close_archive
+import com.sorrowblue.kioarch.internal.cinterop.kio_entry_t
+import com.sorrowblue.kioarch.internal.cinterop.kio_extract_entry
+import com.sorrowblue.kioarch.internal.cinterop.kio_get_entry
+import com.sorrowblue.kioarch.internal.cinterop.kio_get_entry_count
+import com.sorrowblue.kioarch.internal.cinterop.kio_open_archive
+import com.sorrowblue.kioarch.internal.cinterop.kio_sink_t
+import com.sorrowblue.kioarch.internal.cinterop.kio_source_t
+import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.COpaquePointer
+import kotlinx.cinterop.CPointer
+import kotlinx.cinterop.StableRef
+import kotlinx.cinterop.UByteVar
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.allocArray
+import kotlinx.cinterop.asStableRef
+import kotlinx.cinterop.get
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.plus
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.readValue
+import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.staticCFunction
+import kotlinx.cinterop.toKString
+import kotlinx.cinterop.usePinned
 import kotlinx.io.Sink
-import platform.posix.*
-import platform.Foundation.*
-import com.sorrowblue.kioarch.internal.cinterop.*
+import kotlinx.io.files.Path
+import platform.Foundation.NSData
+import platform.Foundation.NSFileHandle
+import platform.Foundation.NSLock
+import platform.Foundation.NSShiftJISStringEncoding
+import platform.Foundation.NSString
+import platform.Foundation.NSURL
+import platform.Foundation.NSUTF8StringEncoding
+import platform.Foundation.closeFile
+import platform.Foundation.create
+import platform.Foundation.offsetInFile
+import platform.Foundation.readDataUpToLength
+import platform.Foundation.seekToEndOfFile
+import platform.Foundation.seekToOffset
+import platform.posix.SEEK_END
+import platform.posix.SEEK_SET
+import platform.posix.fclose
+import platform.posix.feof
+import platform.posix.fopen
+import platform.posix.fread
+import platform.posix.free
+import platform.posix.fseek
+import platform.posix.ftell
+import platform.posix.memcpy
+
+private const val NsShiftJisWindows31JEncoding = 0x80000A01uL
+private const val ErrMsgBufferSize = 512
 
 @OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 private fun decodeCName(cPointer: CPointer<ByteVar>?): String {
     if (cPointer == null) return ""
-    
+
     // Calculate length of C string safely without POSIX strlen type issues
     var len = 0uL
     while (cPointer[len.toInt()] != 0.toByte()) {
         len++
     }
-    if (len == 0uL) return ""
-    
-    // 1. Try UTF-8
-    val nsStringUtf8 = NSString.create(bytes = cPointer, length = len, encoding = NSUTF8StringEncoding)
-    if (nsStringUtf8 != null) {
-        return nsStringUtf8 as String
+    return if (len == 0uL) {
+        ""
+    } else {
+        (
+            NSString.create(bytes = cPointer, length = len, encoding = NSUTF8StringEncoding)
+                ?: NSString.create(
+                    bytes = cPointer,
+                    length = len,
+                    encoding = NsShiftJisWindows31JEncoding
+                )
+                ?: NSString.create(
+                    bytes = cPointer,
+                    length = len,
+                    encoding = NSShiftJISStringEncoding
+                )
+            ) as? String ?: cPointer.toKString()
     }
-    
-    // 2. Try Windows-31J / Shift_JIS (0x80000A01uL)
-    val nsStringSjis = NSString.create(bytes = cPointer, length = len, encoding = 0x80000A01uL)
-    if (nsStringSjis != null) {
-        return nsStringSjis as String
-    }
-    
-    // 3. Try Standard Shift_JIS
-    val nsStringStdSjis = NSString.create(bytes = cPointer, length = len, encoding = NSShiftJISStringEncoding)
-    if (nsStringStdSjis != null) {
-        return nsStringStdSjis as String
-    }
-    
-    // Fallback
-    return cPointer.toKString()
 }
 
 private inline fun <T> NSLock.withLock(action: () -> T): T {
@@ -67,7 +110,10 @@ private inline fun <T> NSLock.withLock(action: () -> T): T {
 }
 
 private class IosPathSeekableSource(pathStr: String) : SeekableSource {
-    private val file = fopen(pathStr, "rb") ?: throw ArchiveIOException("Failed to open file: $pathStr")
+    private val file = fopen(
+        pathStr,
+        "rb"
+    ) ?: throw ArchiveIOException("Failed to open file: $pathStr")
     private val lock = NSLock()
     private var isClosed = false
 
@@ -97,7 +143,9 @@ private class IosPathSeekableSource(pathStr: String) : SeekableSource {
     }
 
     override fun length(): Long = lock.withLock {
-        if (isClosed) 0L else {
+        if (isClosed) {
+            0L
+        } else {
             val current = ftell(file)
             fseek(file, 0L, SEEK_END)
             val len = ftell(file)
@@ -175,7 +223,11 @@ private class IosNSURLSeekableSource(private val nsUrl: NSURL) : SeekableSource 
         delegate = IosPathSeekableSource(path)
     }
 
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = delegate.read(buffer, offset, length)
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = delegate.read(
+        buffer,
+        offset,
+        length
+    )
     override fun seek(position: Long) = delegate.seek(position)
     override fun position(): Long = delegate.position()
     override fun length(): Long = delegate.length()
@@ -211,7 +263,9 @@ private class IosNSFileHandleSeekableSource(private val fileHandle: NSFileHandle
     }
 
     override fun length(): Long = lock.withLock {
-        if (isClosed) 0L else {
+        if (isClosed) {
+            0L
+        } else {
             val current = fileHandle.offsetInFile
             fileHandle.seekToEndOfFile()
             val len = fileHandle.offsetInFile.toLong()
@@ -275,20 +329,25 @@ private class IosArchiveReader(
         val sinkStableRef = StableRef.create(sink)
         try {
             memScoped {
-                val errMsgBytes = allocArray<ByteVar>(512)
-                
+                val errMsgBytes = allocArray<ByteVar>(ErrMsgBufferSize)
+
                 val kioSink = alloc<kio_sink_t>().apply {
-                    write = staticCFunction { opaque: COpaquePointer?, buf: CPointer<UByteVar>?, len: Int ->
-                        if (opaque == null || buf == null) return@staticCFunction
-                        val innerSink = opaque.asStableRef<Sink>().get()
-                        val byteArray = ByteArray(len)
-                        if (len > 0) {
-                            byteArray.usePinned { pinned ->
-                                memcpy(pinned.addressOf(0), buf, len.toULong())
+                    write =
+                        staticCFunction {
+                                opaque: COpaquePointer?,
+                                buf: CPointer<UByteVar>?,
+                                len: Int
+                            ->
+                            if (opaque == null || buf == null) return@staticCFunction
+                            val innerSink = opaque.asStableRef<Sink>().get()
+                            val byteArray = ByteArray(len)
+                            if (len > 0) {
+                                byteArray.usePinned { pinned ->
+                                    memcpy(pinned.addressOf(0), buf, len.toULong())
+                                }
                             }
+                            innerSink.write(byteArray, 0, len)
                         }
-                        innerSink.write(byteArray, 0, len)
-                    }
                     opaque = sinkStableRef.asCPointer()
                 }
 
@@ -297,12 +356,14 @@ private class IosArchiveReader(
                     entry.index,
                     kioSink.readValue(),
                     errMsgBytes,
-                    512
+                    ErrMsgBufferSize
                 )
 
                 if (success == 0) {
                     val errMsg = errMsgBytes.toKString()
-                    throw ArchiveIOException("Failed to extract entry: ${entry.name}. Native error: $errMsg")
+                    throw ArchiveIOException(
+                        "Failed to extract entry: ${entry.name}. Native error: $errMsg"
+                    )
                 }
             }
         } finally {
@@ -351,30 +412,35 @@ public actual object KioArch {
             buf[2] == 0x68.toByte()
     }
 
-    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader {
-        return if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
-    }
+    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader =
+        if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
 
+    @Suppress("TooGenericExceptionCaught")
     public actual fun createReader(source: SeekableSource): ArchiveReader {
         val sourceStableRef = StableRef.create(source)
         try {
             var handle: ULong = 0uL
             memScoped {
-                val errMsgBytes = allocArray<ByteVar>(512)
-                
+                val errMsgBytes = allocArray<ByteVar>(ErrMsgBufferSize)
+
                 val kioSource = alloc<kio_source_t>().apply {
-                    read = staticCFunction { opaque: COpaquePointer?, buf: CPointer<UByteVar>?, len: Int ->
-                        if (opaque == null || buf == null) return@staticCFunction -1
-                        val innerSource = opaque.asStableRef<SeekableSource>().get()
-                        val byteArray = ByteArray(len)
-                        val readBytes = innerSource.read(byteArray, 0, len)
-                        if (readBytes > 0) {
-                            byteArray.usePinned { pinned ->
-                                memcpy(buf, pinned.addressOf(0), readBytes.toULong())
+                    read =
+                        staticCFunction {
+                                opaque: COpaquePointer?,
+                                buf: CPointer<UByteVar>?,
+                                len: Int
+                            ->
+                            if (opaque == null || buf == null) return@staticCFunction -1
+                            val innerSource = opaque.asStableRef<SeekableSource>().get()
+                            val byteArray = ByteArray(len)
+                            val readBytes = innerSource.read(byteArray, 0, len)
+                            if (readBytes > 0) {
+                                byteArray.usePinned { pinned ->
+                                    memcpy(buf, pinned.addressOf(0), readBytes.toULong())
+                                }
                             }
+                            readBytes
                         }
-                        readBytes
-                    }
                     seek = staticCFunction { opaque: COpaquePointer?, pos: Long ->
                         if (opaque == null) return@staticCFunction
                         val innerSource = opaque.asStableRef<SeekableSource>().get()
@@ -393,7 +459,7 @@ public actual object KioArch {
                     opaque = sourceStableRef.asCPointer()
                 }
 
-                handle = kio_open_archive(kioSource.readValue(), errMsgBytes, 512)
+                handle = kio_open_archive(kioSource.readValue(), errMsgBytes, ErrMsgBufferSize)
                 if (handle == 0uL) {
                     val errMsg = errMsgBytes.toKString()
                     throw ArchiveIOException("Failed to open archive. Native error: $errMsg")
@@ -413,9 +479,8 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public actual fun createReader(byteArray: ByteArray): ArchiveReader {
-        return createReader(ByteArraySeekableSource(byteArray))
-    }
+    public actual fun createReader(byteArray: ByteArray): ArchiveReader =
+        createReader(ByteArraySeekableSource(byteArray))
 
     /**
      * Creates an [ArchiveReader] from a Kotlin Multiplatform [Path] for iOS.
@@ -424,9 +489,8 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public actual fun createReader(path: Path): ArchiveReader {
-        return createReader(IosPathSeekableSource(path.toString()))
-    }
+    public actual fun createReader(path: Path): ArchiveReader =
+        createReader(IosPathSeekableSource(path.toString()))
 
     /**
      * Creates an [ArchiveReader] from an in-memory [NSData] for iOS.
@@ -435,9 +499,8 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public fun createReader(nsData: NSData): ArchiveReader {
-        return createReader(IosNSDataSeekableSource(nsData))
-    }
+    public fun createReader(nsData: NSData): ArchiveReader =
+        createReader(IosNSDataSeekableSource(nsData))
 
     /**
      * Creates an [ArchiveReader] from an [NSURL] for iOS.
@@ -446,9 +509,8 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public fun createReader(nsUrl: NSURL): ArchiveReader {
-        return createReader(IosNSURLSeekableSource(nsUrl))
-    }
+    public fun createReader(nsUrl: NSURL): ArchiveReader =
+        createReader(IosNSURLSeekableSource(nsUrl))
 
     /**
      * Creates an [ArchiveReader] from an [NSFileHandle] for iOS.
@@ -457,8 +519,6 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public fun createReader(fileHandle: NSFileHandle): ArchiveReader {
-        return createReader(IosNSFileHandleSeekableSource(fileHandle))
-    }
+    public fun createReader(fileHandle: NSFileHandle): ArchiveReader =
+        createReader(IosNSFileHandleSeekableSource(fileHandle))
 }
-

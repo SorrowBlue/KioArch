@@ -17,13 +17,7 @@ jobs:
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: 🔍️ Run Detekt
         run: >
-          ./gradlew
-          :build-logic:detektMain
-          reportMerge
-          detektDebug detektDebugAndroidTest detektDebugUnitTest
-          detektDeviceTestAndroid detektHostTestAndroid
-          detektMain detektMainAndroid detektMainJvm
-          detektRelease detektTest detektTestJvm
+          ./gradlew detektAll
           -x compileJvmNatives -x compileWasmNatives -x compileIosNatives
           --continue
       - name: Upload SARIF (project)
@@ -38,3 +32,4 @@ jobs:
         with:
           sarif_file: build-logic/build/reports/detekt/main.sarif
           category: detekt-build-logic
+

@@ -30,10 +30,38 @@ tasks.withType<Detekt>().configureEach {
     }
 }
 
+val typeResolvedSourceSetTasks = setOf(
+    "detektMainSourceSet",
+    "detektTestSourceSet",
+    "detektDebugSourceSet",
+    "detektReleaseSourceSet",
+    "detektDebugUnitTestSourceSet",
+    "detektDebugAndroidTestSourceSet",
+    "detektCommonMainSourceSet",
+    "detektCommonTestSourceSet",
+    "detektAndroidJvmMainSourceSet",
+    "detektAndroidJvmTestSourceSet",
+    "detektJvmMainSourceSet",
+    "detektJvmTestSourceSet",
+    "detektJvmDevSourceSet",
+    "detektAndroidMainSourceSet",
+    "detektAndroidHostTestSourceSet",
+    "detektAndroidDeviceTestSourceSet"
+)
+
+val detektTasks = tasks.withType<Detekt>().named {
+    it != "detekt" && it != "detektDevJvm" && it !in typeResolvedSourceSetTasks
+}
+
+rootProject.tasks.named("detektAll").configure {
+    dependsOn(detektTasks)
+}
+
 rootProject.tasks.withType<ReportMergeTask>().configureEach {
-    mustRunAfter(tasks.withType<Detekt>())
+    mustRunAfter(detektTasks)
     input.from(
-        tasks.withType<Detekt>()
-            .map { detektTask -> detektTask.reports.sarif.outputLocation.get().asFile }
+        detektTasks.map { detektTask ->
+            detektTask.reports.sarif.outputLocation.get().asFile
+        }
     )
 }

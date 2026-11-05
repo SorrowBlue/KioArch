@@ -14,18 +14,20 @@
  * limitations under the License.
  */
 
+@file:Suppress("TooManyFunctions")
+
 package com.sorrowblue.kioarch
 
 import kotlinx.io.Sink
 import kotlinx.io.files.Path
 
-private const val SOURCE_STRUCT_SIZE = 20
-private const val ENTRY_STRUCT_SIZE = 24
-private const val SINK_STRUCT_SIZE = 8
-private const val ERR_MSG_BUFFER_SIZE = 512
-private const val ENTRY_SIZE_OFFSET = 1
-private const val INITIAL_READ_BUFFER_SIZE = 256 * 1024
-private const val WRITE_CHUNK_SIZE = 64 * 1024
+private const val SourceStructSize = 20
+private const val EntryStructSize = 24
+private const val SinkStructSize = 8
+private const val ErrMsgBufferSize = 512
+private const val EntrySizeOffset = 1
+private const val InitialReadBufferSize = 256 * 1024
+private const val WriteChunkSize = 64 * 1024
 
 @Suppress("MagicNumber")
 private fun readIntLe(byteArray: ByteArray, offset: Int): Int =
@@ -49,11 +51,9 @@ private class WasmSourceCallbackPtrs(
     val lenPtr: Int
 )
 
-private fun throwNotInitializedWasm(): Nothing {
-    throw IllegalStateException(
-        "KioArch has not been initialized. Call KioArch.initialize(module) first."
-    )
-}
+private fun throwNotInitializedWasm(): Nothing = throw IllegalStateException(
+    "KioArch has not been initialized. Call KioArch.initialize(module) first."
+)
 
 private fun registerWasmSourceCallbacks(module: JsAny): WasmSourceCallbackPtrs {
     val readPtr = registerReadCallback(module)
@@ -81,13 +81,7 @@ private fun cleanupWasmSourcePtrs(
 }
 
 @Suppress("MagicNumber")
-private fun copyToHeap(
-    module: JsAny,
-    bufPtr: Int,
-    byteArray: ByteArray,
-    offset: Int,
-    len: Int
-) {
+private fun copyToHeap(module: JsAny, bufPtr: Int, byteArray: ByteArray, offset: Int, len: Int) {
     var i = 0
     if ((bufPtr and 3) == 0) {
         val limit32 = len - 31
@@ -174,9 +168,8 @@ public actual object KioArch {
             buf[2] == 0x68.toByte()
     }
 
-    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader {
-        return if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
-    }
+    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader =
+        if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
 
     /**
      * Creates an [ArchiveReader] from a custom [SeekableSource] for WasmJs.
@@ -185,6 +178,7 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
+    @Suppress("MagicNumber", "TooGenericExceptionCaught")
     public actual fun createReader(source: SeekableSource): ArchiveReader {
         val module = wasmModule ?: throwNotInitializedWasm()
 
@@ -201,7 +195,7 @@ public actual object KioArch {
             ptrs = registerWasmSourceCallbacks(module)
 
             // Allocate and populate kio_source_t structure (20 bytes)
-            sourcePtr = wasmMalloc(module, SOURCE_STRUCT_SIZE)
+            sourcePtr = wasmMalloc(module, SourceStructSize)
             writeHeap32(module, sourcePtr, 0, ptrs.readPtr)
             writeHeap32(module, sourcePtr, 1, ptrs.seekPtr)
             writeHeap32(module, sourcePtr, 2, ptrs.posPtr)
@@ -209,9 +203,9 @@ public actual object KioArch {
             writeHeap32(module, sourcePtr, 4, sourceOpaqueId)
 
             // Allocate error message buffer (512 bytes)
-            val errMsgPtr = wasmMalloc(module, ERR_MSG_BUFFER_SIZE)
+            val errMsgPtr = wasmMalloc(module, ErrMsgBufferSize)
             try {
-                val rawHandle = wasmOpenArchive(module, sourcePtr, errMsgPtr, ERR_MSG_BUFFER_SIZE)
+                val rawHandle = wasmOpenArchive(module, sourcePtr, errMsgPtr, ErrMsgBufferSize)
                 val handleVal = toBigInt(rawHandle)
 
                 if (isZeroBigInt(handleVal)) {
@@ -223,16 +217,19 @@ public actual object KioArch {
                 wasmFree(module, errMsgPtr)
             }
 
-            return wrapIfNeeded(source, WasmArchiveReader(
-                module,
-                sourceOpaqueId,
-                sourcePtr,
-                ptrs.readPtr,
-                ptrs.seekPtr,
-                ptrs.posPtr,
-                ptrs.lenPtr,
-                handle
-            ))
+            return wrapIfNeeded(
+                source,
+                WasmArchiveReader(
+                    module,
+                    sourceOpaqueId,
+                    sourcePtr,
+                    ptrs.readPtr,
+                    ptrs.seekPtr,
+                    ptrs.posPtr,
+                    ptrs.lenPtr,
+                    handle
+                )
+            )
         } catch (e: Exception) {
             cleanupWasmSourcePtrs(module, sourcePtr, ptrs, sourceOpaqueId)
             throw e
@@ -264,14 +261,15 @@ public actual object KioArch {
             return createReader(NodeFileSeekableSource(path.toString(), module))
         }
         throw UnsupportedOperationException(
-            "File system access using Path is not supported in browser WasmJs environment. Use ByteArray or custom SeekableSource."
+            "File system access using Path is not supported in browser WasmJs environment. " +
+                "Use ByteArray or custom SeekableSource."
         )
     }
 }
 
-@Suppress("SwallowedException", "TooGenericExceptionCaught")
+@Suppress("SwallowedException", "TooGenericExceptionCaught", "LongMethod")
 private fun putWasmSourceCallbacks(module: JsAny, sourceOpaqueId: Int) {
-    var readBuffer = ByteArray(INITIAL_READ_BUFFER_SIZE)
+    var readBuffer = ByteArray(InitialReadBufferSize)
     putSourceJs(
         sourceOpaqueId,
         readFn = { bufPtr, len ->
@@ -408,8 +406,9 @@ private class WasmArchiveReader(
     private var cachedWriteFuncPtr: Int = 0
     private var cachedSinkPtr: Int = 0
     private var cachedErrMsgPtr: Int = 0
-    private val writeBuffer = ByteArray(WRITE_CHUNK_SIZE)
+    private val writeBuffer = ByteArray(WriteChunkSize)
 
+    @Suppress("NestedBlockDepth", "MagicNumber")
     override fun getEntries(): List<ArchiveEntry> {
         if (isClosed) throw IllegalStateException("Reader is closed")
 
@@ -418,7 +417,7 @@ private class WasmArchiveReader(
 
         val list = ArrayList<ArchiveEntry>(count)
         // Allocate kio_entry_t (24 bytes)
-        val entryPtr = wasmMalloc(module, ENTRY_STRUCT_SIZE)
+        val entryPtr = wasmMalloc(module, EntryStructSize)
         try {
             for (i in 0 until count) {
                 if (wasmGetEntry(module, handle, i, entryPtr) != 0) {
@@ -437,7 +436,7 @@ private class WasmArchiveReader(
                     val normalizedName = nameStr.replace('\\', '/')
 
                     // Size is int64, read using double/HEAP64 helper (offset of size is 8 bytes)
-                    val size = readHeap64Double(module, entryPtr, ENTRY_SIZE_OFFSET).toLong()
+                    val size = readHeap64Double(module, entryPtr, EntrySizeOffset).toLong()
 
                     val isDir = readHeap32(module, entryPtr, 4) != 0
                     val crc = readHeap32(module, entryPtr, 5)
@@ -473,10 +472,10 @@ private class WasmArchiveReader(
                 cachedWriteFuncPtr = registerWriteCallback(module)
             }
             if (cachedSinkPtr == 0) {
-                cachedSinkPtr = wasmMalloc(module, SINK_STRUCT_SIZE)
+                cachedSinkPtr = wasmMalloc(module, SinkStructSize)
             }
             if (cachedErrMsgPtr == 0) {
-                cachedErrMsgPtr = wasmMalloc(module, ERR_MSG_BUFFER_SIZE)
+                cachedErrMsgPtr = wasmMalloc(module, ErrMsgBufferSize)
             }
 
             writeHeap32(module, cachedSinkPtr, 0, cachedWriteFuncPtr)
@@ -488,7 +487,7 @@ private class WasmArchiveReader(
                 entry.index,
                 cachedSinkPtr,
                 cachedErrMsgPtr,
-                ERR_MSG_BUFFER_SIZE
+                ErrMsgBufferSize
             )
 
             if (success == 0) {
@@ -544,7 +543,7 @@ private fun putWasmSinkCallbacks(module: JsAny, sinkOpaqueId: Int, writeBuffer: 
                 try {
                     var offset = 0
                     while (offset < len) {
-                        val chunk = minOf(WRITE_CHUNK_SIZE, len - offset)
+                        val chunk = minOf(WriteChunkSize, len - offset)
                         copyFromHeap(module, bufPtr + offset, writeBuffer, chunk)
                         innerSink.write(writeBuffer, 0, chunk)
                         offset += chunk

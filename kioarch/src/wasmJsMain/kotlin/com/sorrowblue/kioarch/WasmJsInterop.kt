@@ -110,8 +110,7 @@ internal fun initSinkMap(): Unit = initSinkMapInternal()
 @JsFun("(id, writeFn) => { globalThis.kioarchSinks.set(id, { write: writeFn }); }")
 private external fun putSinkJsInternal(id: Int, writeFn: (Int, Int) -> Unit)
 
-internal fun putSinkJs(id: Int, writeFn: (Int, Int) -> Unit): Unit =
-    putSinkJsInternal(id, writeFn)
+internal fun putSinkJs(id: Int, writeFn: (Int, Int) -> Unit): Unit = putSinkJsInternal(id, writeFn)
 
 @JsFun("(id) => { globalThis.kioarchSinks.delete(id); }")
 private external fun removeSinkJsInternal(id: Int)
@@ -129,8 +128,7 @@ internal fun removeSinkJs(id: Int): Unit = removeSinkJsInternal(id)
 )
 private external fun registerReadCallbackInternal(module: JsAny): Int
 
-internal fun registerReadCallback(module: JsAny): Int =
-    registerReadCallbackInternal(module)
+internal fun registerReadCallback(module: JsAny): Int = registerReadCallbackInternal(module)
 
 @JsFun(
     """(module) => module.addFunction(function(opaqueId, pos) {
@@ -142,8 +140,7 @@ internal fun registerReadCallback(module: JsAny): Int =
 )
 private external fun registerSeekCallbackInternal(module: JsAny): Int
 
-internal fun registerSeekCallback(module: JsAny): Int =
-    registerSeekCallbackInternal(module)
+internal fun registerSeekCallback(module: JsAny): Int = registerSeekCallbackInternal(module)
 
 @JsFun(
     """(module) => module.addFunction(function(opaqueId) {
@@ -153,8 +150,7 @@ internal fun registerSeekCallback(module: JsAny): Int =
 )
 private external fun registerPosCallbackInternal(module: JsAny): Int
 
-internal fun registerPosCallback(module: JsAny): Int =
-    registerPosCallbackInternal(module)
+internal fun registerPosCallback(module: JsAny): Int = registerPosCallbackInternal(module)
 
 @JsFun(
     """(module) => module.addFunction(function(opaqueId) {
@@ -164,8 +160,7 @@ internal fun registerPosCallback(module: JsAny): Int =
 )
 private external fun registerLenCallbackInternal(module: JsAny): Int
 
-internal fun registerLenCallback(module: JsAny): Int =
-    registerLenCallbackInternal(module)
+internal fun registerLenCallback(module: JsAny): Int = registerLenCallbackInternal(module)
 
 @JsFun(
     """(module) => module.addFunction(function(opaqueId, bufPtr, len) {
@@ -177,22 +172,19 @@ internal fun registerLenCallback(module: JsAny): Int =
 )
 private external fun registerWriteCallbackInternal(module: JsAny): Int
 
-internal fun registerWriteCallback(module: JsAny): Int =
-    registerWriteCallbackInternal(module)
+internal fun registerWriteCallback(module: JsAny): Int = registerWriteCallbackInternal(module)
 
 // --- Emscripten directly bound C functions ---
 
 @JsFun("(module, size) => module._malloc(size)")
 private external fun wasmMallocInternal(module: JsAny, size: Int): Int
 
-internal fun wasmMalloc(module: JsAny, size: Int): Int =
-    wasmMallocInternal(module, size)
+internal fun wasmMalloc(module: JsAny, size: Int): Int = wasmMallocInternal(module, size)
 
 @JsFun("(module, ptr) => module._free(ptr)")
 private external fun wasmFreeInternal(module: JsAny, ptr: Int)
 
-internal fun wasmFree(module: JsAny, ptr: Int): Unit =
-    wasmFreeInternal(module, ptr)
+internal fun wasmFree(module: JsAny, ptr: Int): Unit = wasmFreeInternal(module, ptr)
 
 @JsFun("(module, ptr, offset, value) => { module.HEAP32[(ptr / 4) + offset] = value; }")
 private external fun writeHeap32Internal(module: JsAny, ptr: Int, offset: Int, value: Int)
@@ -231,12 +223,21 @@ internal fun readHeap64Double(module: JsAny, ptr: Int, offset: Int): Double =
                 if (i + 1 >= bytes.length || bytes[i+1] < 0x80 || bytes[i+1] > 0xBF) { isUtf8 = false; break; }
                 i += 2;
             } else if (b1 >= 0xE0 && b1 <= 0xEF) {
-                if (i + 2 >= bytes.length || bytes[i+1] < 0x80 || bytes[i+1] > 0xBF || bytes[i+2] < 0x80 || bytes[i+2] > 0xBF) { isUtf8 = false; break; }
+                if (
+                    i + 2 >= bytes.length ||
+                    bytes[i+1] < 0x80 || bytes[i+1] > 0xBF ||
+                    bytes[i+2] < 0x80 || bytes[i+2] > 0xBF
+                ) { isUtf8 = false; break; }
                 if (b1 === 0xE0 && bytes[i+1] < 0xA0) { isUtf8 = false; break; }
                 if (b1 === 0xED && bytes[i+1] > 0x9F) { isUtf8 = false; break; }
                 i += 3;
             } else if (b1 >= 0xF0 && b1 <= 0xF4) {
-                if (i + 3 >= bytes.length || bytes[i+1] < 0x80 || bytes[i+1] > 0xBF || bytes[i+2] < 0x80 || bytes[i+2] > 0xBF || bytes[i+3] < 0x80 || bytes[i+3] > 0xBF) { isUtf8 = false; break; }
+                if (
+                    i + 3 >= bytes.length ||
+                    bytes[i+1] < 0x80 || bytes[i+1] > 0xBF ||
+                    bytes[i+2] < 0x80 || bytes[i+2] > 0xBF ||
+                    bytes[i+3] < 0x80 || bytes[i+3] > 0xBF
+                ) { isUtf8 = false; break; }
                 if (b1 === 0xF0 && bytes[i+1] < 0x90) { isUtf8 = false; break; }
                 if (b1 === 0xF4 && bytes[i+1] > 0x8F) { isUtf8 = false; break; }
                 i += 4;
@@ -270,7 +271,8 @@ internal fun wasmUtf8ToString(module: JsAny, namePtr: Int): String =
     wasmUtf8ToStringInternal(module, namePtr)
 
 @JsFun(
-    "(module, sourcePtr, errMsgPtr, errMsgLen) => module._kio_open_archive_wasm(sourcePtr, errMsgPtr, errMsgLen)"
+    """(module, sourcePtr, errMsgPtr, errMsgLen) =>
+        module._kio_open_archive_wasm(sourcePtr, errMsgPtr, errMsgLen)"""
 )
 private external fun wasmOpenArchiveInternal(
     module: JsAny,
@@ -279,12 +281,8 @@ private external fun wasmOpenArchiveInternal(
     errMsgLen: Int
 ): JsAny
 
-internal fun wasmOpenArchive(
-    module: JsAny,
-    sourcePtr: Int,
-    errMsgPtr: Int,
-    errMsgLen: Int
-): JsAny = wasmOpenArchiveInternal(module, sourcePtr, errMsgPtr, errMsgLen)
+internal fun wasmOpenArchive(module: JsAny, sourcePtr: Int, errMsgPtr: Int, errMsgLen: Int): JsAny =
+    wasmOpenArchiveInternal(module, sourcePtr, errMsgPtr, errMsgLen)
 
 @JsFun("(module, handle) => module._kio_get_entry_count(handle)")
 private external fun wasmGetEntryCountInternal(module: JsAny, handle: JsAny): Int
@@ -293,13 +291,19 @@ internal fun wasmGetEntryCount(module: JsAny, handle: JsAny): Int =
     wasmGetEntryCountInternal(module, handle)
 
 @JsFun("(module, handle, index, entryPtr) => module._kio_get_entry(handle, index, entryPtr)")
-private external fun wasmGetEntryInternal(module: JsAny, handle: JsAny, index: Int, entryPtr: Int): Int
+private external fun wasmGetEntryInternal(
+    module: JsAny,
+    handle: JsAny,
+    index: Int,
+    entryPtr: Int
+): Int
 
 internal fun wasmGetEntry(module: JsAny, handle: JsAny, index: Int, entryPtr: Int): Int =
     wasmGetEntryInternal(module, handle, index, entryPtr)
 
 @JsFun(
-    "(module, handle, index, sinkPtr, errMsgPtr, errMsgLen) => module._kio_extract_entry_wasm(handle, index, sinkPtr, errMsgPtr, errMsgLen)"
+    """(module, handle, index, sinkPtr, errMsgPtr, errMsgLen) =>
+        module._kio_extract_entry_wasm(handle, index, sinkPtr, errMsgPtr, errMsgLen)"""
 )
 private external fun wasmExtractEntryInternal(
     module: JsAny,
@@ -402,11 +406,12 @@ internal fun toBigInt(rawHandle: JsAny): JsAny = toBigIntInternal(rawHandle)
 @JsFun("(bigIntVal) => bigIntVal === 0n")
 private external fun isZeroBigIntInternal(bigIntVal: JsAny): Boolean
 
-internal fun isZeroBigInt(bigIntVal: JsAny): Boolean =
-    isZeroBigIntInternal(bigIntVal)
+internal fun isZeroBigInt(bigIntVal: JsAny): Boolean = isZeroBigIntInternal(bigIntVal)
 
 @JsFun(
-    "() => typeof process !== 'undefined' && process.versions != null && process.versions.node != null"
+    """() => typeof process !== 'undefined' &&
+        process.versions != null &&
+        process.versions.node != null"""
 )
 private external fun isNodeJsWasmInternal(): Boolean
 
@@ -418,8 +423,13 @@ internal fun isNodeJsWasm(): Boolean = isNodeJsWasmInternal()
             globalThis.kioarchFs = fsModule.default || fsModule;
         }
         return () => {
-            if (!globalThis.kioarchFs && typeof process !== 'undefined' && typeof process.getBuiltinModule === 'function') {
-                globalThis.kioarchFs = process.getBuiltinModule('node:fs') || process.getBuiltinModule('fs');
+            if (
+                !globalThis.kioarchFs &&
+                typeof process !== 'undefined' &&
+                typeof process.getBuiltinModule === 'function'
+            ) {
+                globalThis.kioarchFs =
+                    process.getBuiltinModule('node:fs') || process.getBuiltinModule('fs');
             }
         };
     })(
@@ -433,14 +443,20 @@ private external fun initNodeFsInternal()
 internal fun initNodeFs(): Unit = initNodeFsInternal()
 
 @JsFun(
-    "(pathStr) => { if (!globalThis.kioarchFs) return -1; return globalThis.kioarchFs.openSync(pathStr, 'r'); }"
+    """(pathStr) => {
+        if (!globalThis.kioarchFs) return -1;
+        return globalThis.kioarchFs.openSync(pathStr, 'r');
+    }"""
 )
 private external fun nodeOpenSyncInternal(pathStr: String): Int
 
 internal fun nodeOpenSync(pathStr: String): Int = nodeOpenSyncInternal(pathStr)
 
 @JsFun(
-    "(fd) => { if (!globalThis.kioarchFs) return 0.0; return Number(globalThis.kioarchFs.fstatSync(fd).size); }"
+    """(fd) => {
+        if (!globalThis.kioarchFs) return 0.0;
+        return Number(globalThis.kioarchFs.fstatSync(fd).size);
+    }"""
 )
 private external fun nodeSizeSyncInternal(fd: Int): Double
 
@@ -449,7 +465,9 @@ internal fun nodeSizeSync(fd: Int): Double = nodeSizeSyncInternal(fd)
 @JsFun(
     """(fd, bufPtr, bytesToRead, pos, module, copyFn) => {
         if (!globalThis.kioarchFs) return -1;
-        var jsBuffer = typeof Buffer !== 'undefined' && typeof Buffer.alloc === 'function' ? Buffer.alloc(bytesToRead) : new Uint8Array(bytesToRead);
+        var jsBuffer = typeof Buffer !== 'undefined' && typeof Buffer.alloc === 'function'
+            ? Buffer.alloc(bytesToRead)
+            : new Uint8Array(bytesToRead);
         var readBytes = globalThis.kioarchFs.readSync(fd, jsBuffer, 0, bytesToRead, pos);
         if (readBytes <= 0) return readBytes;
         for (var i = 0; i < readBytes; i++) {

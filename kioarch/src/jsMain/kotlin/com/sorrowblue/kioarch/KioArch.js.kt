@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+@file:Suppress("TooManyFunctions")
+
 package com.sorrowblue.kioarch
 
 import kotlinx.io.Sink
@@ -22,11 +24,13 @@ import org.khronos.webgl.ArrayBuffer
 import org.khronos.webgl.Int8Array
 import org.khronos.webgl.Uint8Array
 
-private const val SOURCE_STRUCT_SIZE = 20
-private const val ENTRY_STRUCT_SIZE = 24
-private const val SINK_STRUCT_SIZE = 8
-private const val ERR_MSG_BUFFER_SIZE = 512
-private const val ENTRY_SIZE_OFFSET = 8
+private const val SourceStructSize = 20
+private const val EntryStructSize = 24
+private const val SinkStructSize = 8
+private const val ErrMsgBufferSize = 512
+private const val EntrySizeOffset = 8
+private const val InitialReadBufferSize = 256 * 1024
+private const val WriteChunkSize = 64 * 1024
 
 // Global map to track active Kotlin objects passed to C callbacks
 private val opaqueMap = mutableMapOf<Int, Any>()
@@ -49,6 +53,7 @@ internal fun releaseOpaque(id: Int) {
     readBufferMap.remove(id)
 }
 
+@Suppress("LongMethod")
 private fun wasmUtf8ToString(wasm: dynamic, namePtr: Int): String {
     val decoder = js(
         """
@@ -70,12 +75,21 @@ private fun wasmUtf8ToString(wasm: dynamic, namePtr: Int): String {
                     if (i + 1 >= bytes.length || bytes[i+1] < 0x80 || bytes[i+1] > 0xBF) { isUtf8 = false; break; }
                     i += 2;
                 } else if (b1 >= 0xE0 && b1 <= 0xEF) {
-                    if (i + 2 >= bytes.length || bytes[i+1] < 0x80 || bytes[i+1] > 0xBF || bytes[i+2] < 0x80 || bytes[i+2] > 0xBF) { isUtf8 = false; break; }
+                    if (
+                        i + 2 >= bytes.length ||
+                        bytes[i+1] < 0x80 || bytes[i+1] > 0xBF ||
+                        bytes[i+2] < 0x80 || bytes[i+2] > 0xBF
+                    ) { isUtf8 = false; break; }
                     if (b1 === 0xE0 && bytes[i+1] < 0xA0) { isUtf8 = false; break; }
                     if (b1 === 0xED && bytes[i+1] > 0x9F) { isUtf8 = false; break; }
                     i += 3;
                 } else if (b1 >= 0xF0 && b1 <= 0xF4) {
-                    if (i + 3 >= bytes.length || bytes[i+1] < 0x80 || bytes[i+1] > 0xBF || bytes[i+2] < 0x80 || bytes[i+2] > 0xBF || bytes[i+3] < 0x80 || bytes[i+3] > 0xBF) { isUtf8 = false; break; }
+                    if (
+                        i + 3 >= bytes.length ||
+                        bytes[i+1] < 0x80 || bytes[i+1] > 0xBF ||
+                        bytes[i+2] < 0x80 || bytes[i+2] > 0xBF ||
+                        bytes[i+3] < 0x80 || bytes[i+3] > 0xBF
+                    ) { isUtf8 = false; break; }
                     if (b1 === 0xF0 && bytes[i+1] < 0x90) { isUtf8 = false; break; }
                     if (b1 === 0xF4 && bytes[i+1] > 0x8F) { isUtf8 = false; break; }
                     i += 4;
@@ -107,16 +121,9 @@ private fun wasmUtf8ToString(wasm: dynamic, namePtr: Int): String {
     return decoder(wasm, namePtr)
 }
 
-private const val INITIAL_READ_BUFFER_SIZE = 256 * 1024
-private const val WRITE_CHUNK_SIZE = 64 * 1024
+private class JsSinkContext(val sink: Sink, val writeBuffer: ByteArray, val writeJsArray: Int8Array)
 
-private class JsSinkContext(
-    val sink: Sink,
-    val writeBuffer: ByteArray,
-    val writeJsArray: Int8Array
-)
-
-@Suppress("SwallowedException", "TooGenericExceptionCaught")
+@Suppress("SwallowedException", "TooGenericExceptionCaught", "ReturnCount")
 private fun bridgeRead(wasm: dynamic, opaqueId: Int, bufPtr: Int, len: Int): Int {
     val innerSource = getOpaque(opaqueId) as? SeekableSource ?: return -1
     return try {
@@ -140,7 +147,7 @@ private fun bridgeRead(wasm: dynamic, opaqueId: Int, bufPtr: Int, len: Int): Int
 
         var readBuffer = readBufferMap[opaqueId]
         if (readBuffer == null || readBuffer.size < len) {
-            readBuffer = ByteArray(maxOf(len, INITIAL_READ_BUFFER_SIZE))
+            readBuffer = ByteArray(maxOf(len, InitialReadBufferSize))
             readBufferMap[opaqueId] = readBuffer
         }
         val bytesRead = innerSource.read(readBuffer, 0, len)
@@ -189,7 +196,7 @@ private fun bridgeWrite(wasm: dynamic, sinkContextObj: Any, bufPtr: Int, len: In
         val heapBuffer = wasm.HEAPU8.buffer as ArrayBuffer
         var offset = 0
         while (offset < len) {
-            val chunk = minOf(WRITE_CHUNK_SIZE, len - offset)
+            val chunk = minOf(WriteChunkSize, len - offset)
             val view = Int8Array(
                 heapBuffer,
                 bufPtr + offset,
@@ -229,10 +236,10 @@ public actual object KioArch {
             buf[2] == 0x68.toByte()
     }
 
-    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader {
-        return if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
-    }
+    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader =
+        if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
 
+    @Suppress("MagicNumber", "TooGenericExceptionCaught")
     public actual fun createReader(source: SeekableSource): ArchiveReader {
         val wasm: dynamic = wasmModule ?: throwNotInitialized()
 
@@ -246,7 +253,7 @@ public actual object KioArch {
             ptrs = registerJsSourceCallbacks(wasm)
 
             // Allocate and populate kio_source_t structure (20 bytes)
-            sourcePtr = wasm._malloc(SOURCE_STRUCT_SIZE) as Int
+            sourcePtr = wasm._malloc(SourceStructSize) as Int
             val heap32 = wasm.HEAP32
             val sourceWordOffset = sourcePtr / 4
             heap32[sourceWordOffset + 0] = ptrs.readPtr
@@ -256,22 +263,24 @@ public actual object KioArch {
             heap32[sourceWordOffset + 4] = sourceOpaqueId
 
             // Allocate error message buffer (512 bytes)
-            val errMsgPtr = wasm._malloc(ERR_MSG_BUFFER_SIZE) as Int
+            val errMsgPtr = wasm._malloc(ErrMsgBufferSize) as Int
             try {
-                val rawHandle = wasm._kio_open_archive(sourcePtr, errMsgPtr, ERR_MSG_BUFFER_SIZE)
+                val rawHandle = wasm._kio_open_archive(sourcePtr, errMsgPtr, ErrMsgBufferSize)
 
                 // Emscripten handles 64-bit unsigned int returns as BigInt or low/high parts.
                 // In modern Emscripten with BigInt support, it is returned as a BigInt.
                 val handleVal = (
                     js(
-                    "function(raw) { return globalThis['BigInt'](raw); }"
-                ) as (dynamic) -> dynamic
-                )(rawHandle)
+                        "function(raw) { return globalThis['BigInt'](raw); }"
+                    ) as (dynamic) -> dynamic
+                    )(rawHandle)
                 val isZero = (
                     js(
-                    "function(raw) { return globalThis['BigInt'](raw) === globalThis['BigInt'](0); }"
-                ) as (dynamic) -> Boolean
-                )(rawHandle)
+                        "function(raw) { " +
+                            "return globalThis['BigInt'](raw) === globalThis['BigInt'](0); " +
+                            "}"
+                    ) as (dynamic) -> Boolean
+                    )(rawHandle)
                 if (isZero) {
                     // Extract error message
                     val errMsg = wasmUtf8ToString(wasm, errMsgPtr)
@@ -282,16 +291,19 @@ public actual object KioArch {
                 wasm._free(errMsgPtr)
             }
 
-            return wrapIfNeeded(source, JsArchiveReader(
-                wasm,
-                sourceOpaqueId,
-                sourcePtr,
-                ptrs.readPtr,
-                ptrs.seekPtr,
-                ptrs.posPtr,
-                ptrs.lenPtr,
-                handle
-            ))
+            return wrapIfNeeded(
+                source,
+                JsArchiveReader(
+                    wasm,
+                    sourceOpaqueId,
+                    sourcePtr,
+                    ptrs.readPtr,
+                    ptrs.seekPtr,
+                    ptrs.posPtr,
+                    ptrs.lenPtr,
+                    handle
+                )
+            )
         } catch (e: Exception) {
             cleanupSourcePtrs(wasm, sourcePtr, ptrs, sourceOpaqueId)
             throw e
@@ -320,7 +332,8 @@ public actual object KioArch {
             return createReader(NodeFileSeekableSource(path.toString()))
         }
         throw UnsupportedOperationException(
-            "File system access using Path is not supported in browser JS environment. Use ByteArray or custom SeekableSource."
+            "File system access using Path is not supported in browser JS environment. " +
+                "Use ByteArray or custom SeekableSource."
         )
     }
 }
@@ -332,11 +345,9 @@ private class SourceCallbackPtrs(
     val lenPtr: Int
 )
 
-private fun throwNotInitialized(): Nothing {
-    throw IllegalStateException(
-        "KioArch has not been initialized. Call KioArch.initialize(module) first."
-    )
-}
+private fun throwNotInitialized(): Nothing = throw IllegalStateException(
+    "KioArch has not been initialized. Call KioArch.initialize(module) first."
+)
 
 private fun registerJsSourceCallbacks(wasm: dynamic): SourceCallbackPtrs {
     val readFuncCreator = js(
@@ -507,9 +518,10 @@ private class JsArchiveReader(
     private var cachedWriteFuncPtr: Int = 0
     private var cachedSinkPtr: Int = 0
     private var cachedErrMsgPtr: Int = 0
-    private val writeBuffer = ByteArray(WRITE_CHUNK_SIZE)
+    private val writeBuffer = ByteArray(WriteChunkSize)
     private val writeJsArray = writeBuffer.asDynamic() as Int8Array
 
+    @Suppress("NestedBlockDepth", "MagicNumber")
     override fun getEntries(): List<ArchiveEntry> {
         if (isClosed) throw IllegalStateException("Reader is closed")
 
@@ -518,7 +530,7 @@ private class JsArchiveReader(
 
         val list = ArrayList<ArchiveEntry>(count)
         // Allocate kio_entry_t (24 bytes)
-        val entryPtr = wasm._malloc(ENTRY_STRUCT_SIZE) as Int
+        val entryPtr = wasm._malloc(EntryStructSize) as Int
         try {
             for (i in 0 until count) {
                 if (wasm._kio_get_entry(rawHandle, i, entryPtr) as Int != 0) {
@@ -545,7 +557,7 @@ private class JsArchiveReader(
                         js(
                             "function(heap, idx) { return Number(heap[idx]); }"
                         ) as (dynamic, Int) -> Double
-                        )(wasm.HEAP64, (entryPtr + ENTRY_SIZE_OFFSET) / ENTRY_SIZE_OFFSET)
+                        )(wasm.HEAP64, (entryPtr + EntrySizeOffset) / EntrySizeOffset)
                     val size = sizeVal.toLong()
 
                     val isDir = heap32[wordOffset + 4] as Int != 0
@@ -590,10 +602,10 @@ private class JsArchiveReader(
                 cachedWriteFuncPtr = writeFuncCreator(wasm, ::getOpaque, ::bridgeWrite)
             }
             if (cachedSinkPtr == 0) {
-                cachedSinkPtr = wasm._malloc(SINK_STRUCT_SIZE) as Int
+                cachedSinkPtr = wasm._malloc(SinkStructSize) as Int
             }
             if (cachedErrMsgPtr == 0) {
-                cachedErrMsgPtr = wasm._malloc(ERR_MSG_BUFFER_SIZE) as Int
+                cachedErrMsgPtr = wasm._malloc(ErrMsgBufferSize) as Int
             }
 
             val heap32 = wasm.HEAP32
@@ -606,7 +618,7 @@ private class JsArchiveReader(
                 entry.index,
                 cachedSinkPtr,
                 cachedErrMsgPtr,
-                ERR_MSG_BUFFER_SIZE
+                ErrMsgBufferSize
             ) as Int
 
             if (success == 0) {

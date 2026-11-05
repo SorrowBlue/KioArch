@@ -11,10 +11,10 @@ import org.jetbrains.compose.resources.Font
 @Composable
 internal actual fun AppTheme(content: @Composable (() -> Unit)) {
     MaterialTheme(
-        typography = getAppTypography(), content = content
+        typography = getAppTypography(),
+        content = content
     )
 }
-
 
 @Composable
 private fun getAppTypography(): Typography {

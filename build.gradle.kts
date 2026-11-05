@@ -19,3 +19,10 @@ val reportMerge = tasks.register("reportMerge", ReportMergeTask::class) {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     output.set(rootProject.layout.buildDirectory.file("reports/detekt/merge.sarif"))
 }
+
+tasks.register("detektAll") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Run all detekt analyses across the project and build-logic, and merge SARIF reports."
+    dependsOn(gradle.includedBuild("build-logic").task(":detektMain"))
+    dependsOn(reportMerge)
+}
