@@ -131,7 +131,7 @@ abstract class UpdateBenchmarkChartsTask : DefaultTask() {
         )
         chart.styler.setYAxisTickLabelsFormattingFunction { value ->
             val rounded = value.roundToInt()
-            if (abs(value - rounded) < 1e-4) logLabels[rounded] ?: "" else ""
+            if (abs(value - rounded) < 1e-4) logLabels[rounded].orEmpty() else ""
         }
 
         chart.addSeries("KioArch", CATEGORIES, kioSeries)

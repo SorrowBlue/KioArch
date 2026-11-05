@@ -34,6 +34,6 @@ rootProject.tasks.withType<ReportMergeTask>().configureEach {
     mustRunAfter(tasks.withType<Detekt>())
     input.from(
         tasks.withType<Detekt>()
-            .map { it.reports.sarif.outputLocation.get().asFile }
+            .map { detektTask -> detektTask.reports.sarif.outputLocation.get().asFile }
     )
 }
