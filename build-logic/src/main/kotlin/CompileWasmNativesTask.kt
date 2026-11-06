@@ -2,12 +2,14 @@ import java.io.File
 import javax.inject.Inject
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
@@ -34,6 +36,14 @@ abstract class CompileWasmNativesTask @Inject constructor(
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val cppSourceDir: DirectoryProperty
+
+    /**
+     * Additional external C/C++ source files (such as 7zip, miniz, and bzip2)
+     * tracked for incremental builds.
+     */
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val externalSourceDirs: ConfigurableFileCollection
 
     /**
      * The output directory where the built Wasm and JS loader files will be placed.

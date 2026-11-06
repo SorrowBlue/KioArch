@@ -192,7 +192,7 @@ static void throw_archive_exception(JNIEnv *env, const char *class_path, const c
 }
 
 static void throw_7z_error(JNIEnv *env, SRes res, const char *action) {
-    const char *ex_class = "com/sorrowblue/kioarch/ArchiveException";
+    const char *ex_class = "com/sorrowblue/kioarch/ArchiveIOException";
     const char *err_str = "Unknown error";
 
     switch (res) {
@@ -238,13 +238,15 @@ static void throw_7z_error(JNIEnv *env, SRes res, const char *action) {
 }
 
 static void throw_miniz_error(JNIEnv *env, mz_zip_error err, const char *action) {
-    const char *ex_class = "com/sorrowblue/kioarch/ArchiveException";
+    const char *ex_class = "com/sorrowblue/kioarch/ArchiveIOException";
     const char *err_str = mz_zip_get_error_string(err);
 
     switch (err) {
         case MZ_ZIP_INVALID_HEADER_OR_CORRUPTED:
         case MZ_ZIP_CRC_CHECK_FAILED:
         case MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE:
+        case MZ_ZIP_DECOMPRESSION_FAILED:
+        case MZ_ZIP_FAILED_FINDING_CENTRAL_DIR:
         case MZ_ZIP_VALIDATION_FAILED:
             ex_class = "com/sorrowblue/kioarch/ArchiveCorruptedException";
             break;
@@ -2083,8 +2085,16 @@ static jboolean extract_zip_entry_zero_copy(
         return JNI_FALSE;
     }
 
-    cur_file_ofs += 30 + (mz_uint64)MZ_READ_LE16(local_header + 26) + (mz_uint64)MZ_READ_LE16(local_header + 28);
-    if ((cur_file_ofs + file_stat.m_comp_size) > archive->zipArchive.m_archive_size) {
+    mz_uint64 header_extra = 30 + (mz_uint64)MZ_READ_LE16(local_header + 26) + (mz_uint64)MZ_READ_LE16(local_header + 28);
+    if (header_extra > archive->zipArchive.m_archive_size ||
+        cur_file_ofs > archive->zipArchive.m_archive_size - header_extra) {
+        *handled = 1;
+        throw_miniz_error(env, MZ_ZIP_INVALID_HEADER_OR_CORRUPTED, "extract entry");
+        return JNI_FALSE;
+    }
+    cur_file_ofs += header_extra;
+    if (file_stat.m_comp_size > archive->zipArchive.m_archive_size ||
+        cur_file_ofs > archive->zipArchive.m_archive_size - file_stat.m_comp_size) {
         *handled = 1;
         throw_miniz_error(env, MZ_ZIP_INVALID_HEADER_OR_CORRUPTED, "extract entry");
         return JNI_FALSE;
