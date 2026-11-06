@@ -17,9 +17,13 @@
 package com.sorrowblue.kioarch
 
 /**
- * An [ArchiveReader] implementation dedicated to Bzip2 decompression (.bz2 and .tar.bz2).
+ * An [ArchiveReader] decorator returned when opening Bzip2-compressed archives (`.bz2`,
+ * `.tar.bz2`, `.tbz2`, and `.tbz`).
  *
- * It transparently delegates all archive operations to the underlying native reader.
+ * All [ArchiveReader] operations are delegated transparently to the underlying platform
+ * [delegate].
+ *
+ * @param delegate the underlying native [ArchiveReader] handling Bzip2 stream decompression.
  */
 public class Bzip2ArchiveReader(private val delegate: ArchiveReader) : ArchiveReader by delegate
 

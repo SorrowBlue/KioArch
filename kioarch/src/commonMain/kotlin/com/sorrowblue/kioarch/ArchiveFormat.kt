@@ -17,32 +17,41 @@
 package com.sorrowblue.kioarch
 
 /**
- * Supported archive formats in KioArch.
+ * Archive and compression formats supported by [KioArch].
  *
- * @property extension The canonical lowercase file extension of the format.
+ * Format detection at runtime is performed by inspecting the stream's leading magic bytes rather
+ * than matching filenames against [extension].
+ *
+ * @param extension the canonical lowercase file extension (without a leading dot) associated with
+ *   this format.
  */
-public enum class ArchiveFormat(public val extension: String) {
-    /** 7-Zip Archive format. */
+public enum class ArchiveFormat(
+    /**
+     * The canonical lowercase file extension (without a leading dot) associated with this format.
+     */
+    public val extension: String
+) {
+    /** 7-Zip archive format (`.7z`), decoded via the 7-Zip Core C engine (`CSzArEx`). */
     SEVEN_ZIP("7z"),
 
-    /** ZIP Archive format. */
+    /** ZIP archive format (`.zip`), decoded via the `miniz` engine. */
     ZIP("zip"),
 
-    /** Gzip Compressed Tar Archive format. */
+    /** Gzip-compressed POSIX `ustar` Tar archive format (`.tar.gz`). */
     TAR_GZ("tar.gz"),
 
-    /** Gzip Compressed Tar Archive format (.tgz). */
+    /** Gzip-compressed POSIX `ustar` Tar archive format using the `.tgz` extension alias. */
     TGZ("tgz"),
 
-    /** Bzip2 Compressed format. */
+    /** Single-stream Bzip2 compressed format (`.bz2`), decoded via `libbzip2`. */
     BZIP2("bz2"),
 
-    /** Bzip2 Compressed Tar Archive format. */
+    /** Bzip2-compressed POSIX `ustar` Tar archive format (`.tar.bz2`). */
     TAR_BZ2("tar.bz2"),
 
-    /** Bzip2 Compressed Tar Archive format (.tbz2). */
+    /** Bzip2-compressed POSIX `ustar` Tar archive format using the `.tbz2` extension alias. */
     TBZ2("tbz2"),
 
-    /** Bzip2 Compressed Tar Archive format (.tbz). */
+    /** Bzip2-compressed POSIX `ustar` Tar archive format using the `.tbz` extension alias. */
     TBZ("tbz")
 }

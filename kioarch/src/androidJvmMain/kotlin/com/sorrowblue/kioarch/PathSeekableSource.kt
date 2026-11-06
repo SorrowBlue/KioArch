@@ -22,9 +22,10 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 
 /**
- * A JVM/Android-specific [DirectSeekableSource] implementation wrapping a [FileChannel] for NIO-based random access.
+ * A JVM and Android [DirectSeekableSource] backed by a read-only Java NIO [FileChannel].
  *
- * @param path the Java NIO path to wrap
+ * @param path the Java NIO [Path] to open with [StandardOpenOption.READ].
+ * @throws java.io.IOException if an I/O error occurs when opening the channel.
  */
 public class PathSeekableSource(path: Path) : DirectSeekableSource {
     private val channel = FileChannel.open(path, StandardOpenOption.READ)

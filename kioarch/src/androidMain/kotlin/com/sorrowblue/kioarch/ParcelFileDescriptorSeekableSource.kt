@@ -23,10 +23,13 @@ import java.io.FileNotFoundException
 import java.nio.ByteBuffer
 
 /**
- * An Android-specific [SeekableSource] implementation wrapping a [ParcelFileDescriptor]
- * for storage-provider-based random access.
+ * An Android-specific [DirectSeekableSource] wrapping a seekable [ParcelFileDescriptor] for
+ * Storage Access Framework (`content://`) or ContentProvider random access without copying files
+ * into cache storage.
  *
- * @param pfd the parcel file descriptor to wrap
+ * Closing this source closes the underlying [ParcelFileDescriptor].
+ *
+ * @param pfd a seekable [ParcelFileDescriptor] opened in read mode.
  */
 public class ParcelFileDescriptorSeekableSource(private val pfd: ParcelFileDescriptor) :
     DirectSeekableSource {
@@ -58,10 +61,14 @@ public class ParcelFileDescriptorSeekableSource(private val pfd: ParcelFileDescr
 }
 
 /**
- * Extension helper to create an [ArchiveReader] directly from a [ParcelFileDescriptor].
+ * Creates an [ArchiveReader] directly from an Android [ParcelFileDescriptor].
  *
- * @param pfd the parcel file descriptor of the archive file
- * @return an [ArchiveReader] to read the archive
+ * The returned [ArchiveReader] takes ownership of [pfd] and closes it when the reader is closed,
+ * or immediately if opening the archive fails.
+ *
+ * @param pfd a seekable [ParcelFileDescriptor] pointing to the archive file.
+ * @return an [ArchiveReader] to inspect and extract entries from [pfd].
+ * @throws ArchiveException if the archive is corrupted, unsupported, or an I/O error occurs.
  */
 @Suppress("TooGenericExceptionCaught")
 public fun KioArch.createReader(pfd: ParcelFileDescriptor): ArchiveReader {
@@ -75,13 +82,24 @@ public fun KioArch.createReader(pfd: ParcelFileDescriptor): ArchiveReader {
 }
 
 /**
- * Extension helper to create an [ArchiveReader] directly from an Android [Uri].
- * Note that the caller is responsible for ensuring the Uri is accessible (e.g. holding permissions).
+ * Creates an [ArchiveReader] directly from an Android content [Uri] resolved via
+ * `context.contentResolver`.
  *
- * @param context the context to resolve the content resolver
- * @param uri the content Uri of the archive file
- * @return an [ArchiveReader] to read the archive
- * @throws FileNotFoundException if the Uri could not be resolved or opened
+ * The caller is responsible for ensuring that the application holds read permissions for [uri].
+ *
+ * ```kotlin
+ * KioArch.createReader(context, documentUri).use { reader ->
+ *     for (entry in reader.getEntries()) {
+ *         println("${entry.name}: ${entry.size} bytes")
+ *     }
+ * }
+ * ```
+ *
+ * @param context the Android [Context] used to access the `ContentResolver`.
+ * @param uri the `content://` or `file://` [Uri] of the archive file.
+ * @return an [ArchiveReader] to inspect and extract entries from [uri].
+ * @throws FileNotFoundException if [uri] cannot be resolved or opened.
+ * @throws ArchiveException if the archive is corrupted, unsupported, or an I/O error occurs.
  */
 public fun KioArch.createReader(context: Context, uri: Uri): ArchiveReader {
     val pfd = context.contentResolver.openFileDescriptor(uri, "r")

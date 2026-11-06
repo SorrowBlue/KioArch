@@ -19,15 +19,25 @@ package com.sorrowblue.kioarch
 import java.nio.ByteBuffer
 
 /**
- * A seekable byte channel source that supports direct read operations using [ByteBuffer]
- * to bypass JNI copy overhead on JVM and Android platforms.
+ * A JVM and Android extension of [SeekableSource] that transfers bytes directly into a NIO
+ * [ByteBuffer], bypassing intermediate JVM heap `ByteArray` copies across the JNI boundary.
+ *
+ * When a `DirectSeekableSource` is passed to [KioArch.createReader], the native JNI layer
+ * allocates a direct [ByteBuffer] via `NewDirectByteBuffer` and invokes [read] directly into
+ * native memory.
+ *
+ * @see FileSeekableSource
+ * @see PathSeekableSource
  */
 public interface DirectSeekableSource : SeekableSource {
     /**
-     * Reads a sequence of bytes from this source into the given [byteBuffer].
+     * Reads a sequence of bytes from this source at the current position into [byteBuffer].
      *
-     * @param byteBuffer the buffer into which bytes are to be transferred.
-     * @return The number of bytes read, possibly zero, or -1 if the channel has reached end-of-stream.
+     * Up to `byteBuffer.remaining()` bytes are transferred, and both this source's position and
+     * `byteBuffer.position()` are advanced by the number of bytes read.
+     *
+     * @param byteBuffer the destination buffer into which bytes are transferred.
+     * @return the number of bytes read, or `-1` if the source has reached end-of-stream.
      */
     public fun read(byteBuffer: ByteBuffer): Int
 }

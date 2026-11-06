@@ -566,7 +566,7 @@ public actual object KioArch {
         createReader(ByteArraySeekableSource(byteArray))
 
     /**
-     * Creates an [ArchiveReader] from a Kotlin Multiplatform [Path] for iOS.
+     * Creates an [ArchiveReader] from a Kotlin Multiplatform `Path` for iOS.
      *
      * @param path the path to the archive file
      * @return an [ArchiveReader] to read the archive
@@ -584,9 +584,9 @@ public actual object KioArch {
     }
 
     /**
-     * Creates an [ArchiveReader] from an in-memory [NSData] for iOS.
+     * Creates an [ArchiveReader] from an in-memory Foundation `NSData` buffer for iOS.
      *
-     * @param nsData the [NSData] containing the archive data
+     * @param nsData the `NSData` containing the archive data
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
@@ -594,9 +594,9 @@ public actual object KioArch {
         createReader(IosNSDataSeekableSource(nsData))
 
     /**
-     * Creates an [ArchiveReader] from an [NSURL] for iOS.
+     * Creates an [ArchiveReader] from a Foundation file `NSURL` for iOS.
      *
-     * @param nsUrl the [NSURL] pointing to the archive file
+     * @param nsUrl the `NSURL` pointing to the archive file
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
@@ -612,9 +612,9 @@ public actual object KioArch {
     }
 
     /**
-     * Creates an [ArchiveReader] from an [NSFileHandle] for iOS.
+     * Creates an [ArchiveReader] from a Foundation `NSFileHandle` for iOS.
      *
-     * @param fileHandle the [NSFileHandle] to read the archive from
+     * @param fileHandle the `NSFileHandle` to read the archive from
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */

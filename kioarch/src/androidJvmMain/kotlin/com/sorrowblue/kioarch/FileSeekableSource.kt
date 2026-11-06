@@ -21,7 +21,11 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 
 /**
- * A JVM/Android-specific [SeekableSource] implementation wrapping a [RandomAccessFile] for disk-based random access.
+ * A JVM and Android [DirectSeekableSource] backed by a read-only [RandomAccessFile] and its
+ * underlying `FileChannel`.
+ *
+ * @param file the local archive [File] to open in read-only mode.
+ * @throws java.io.FileNotFoundException if [file] does not exist or cannot be opened for reading.
  */
 public class FileSeekableSource(file: File) : DirectSeekableSource {
     private val raf = RandomAccessFile(file, "r")
@@ -46,7 +50,21 @@ public class FileSeekableSource(file: File) : DirectSeekableSource {
 }
 
 /**
- * Extension helper to create an [ArchiveReader] directly from a [File].
+ * Creates an [ArchiveReader] reading directly from a `java.io.File` via [FileSeekableSource].
+ *
+ * If opening the archive fails, the underlying file descriptor is closed automatically before the
+ * exception is rethrown.
+ *
+ * ```kotlin
+ * KioArch.createReader(File("archive.zip")).use { reader ->
+ *     reader.getEntries().forEach { println(it.name) }
+ * }
+ * ```
+ *
+ * @param file the archive [File] to open.
+ * @return a new [ArchiveReader] for inspecting and extracting entries from [file].
+ * @throws java.io.FileNotFoundException if [file] does not exist or cannot be opened.
+ * @throws ArchiveException if the file is not a valid supported archive or an I/O error occurs.
  */
 @Suppress("TooGenericExceptionCaught")
 public fun KioArch.createReader(file: File): ArchiveReader {
