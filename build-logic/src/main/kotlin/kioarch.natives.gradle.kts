@@ -10,6 +10,9 @@ val compileJvmNatives = tasks.register<CompileJvmNativesTask>("compileJvmNatives
     cppSourceDir.set(config.jvm.cppSourceDir.orElse(config.cppSourceDir))
     outputDir.set(config.jvm.outputDir)
     targetOs.set(providers.currentOs())
+    enableAsan.set(
+        providers.gradleProperty("kioarch.asan").map { it.toBoolean() }.orElse(false)
+    )
 }
 
 val compileWasmNatives = tasks.register<CompileWasmNativesTask>("compileWasmNatives") {

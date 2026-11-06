@@ -34,6 +34,98 @@
 
 #define kInputBufSize ((size_t)1 << 18) // 256KB input buffer for LookToRead2
 
+static volatile long g_active_allocations = 0;
+static volatile long g_crc_init_state = 0; // 0 = uninitialized, 1 = initializing, 2 = initialized
+
+#define KIO_ATOMIC_INC(ptr) __atomic_add_fetch((ptr), 1, __ATOMIC_SEQ_CST)
+#define KIO_ATOMIC_DEC(ptr) __atomic_sub_fetch((ptr), 1, __ATOMIC_SEQ_CST)
+#define KIO_ATOMIC_LOAD(ptr) __atomic_load_n((ptr), __ATOMIC_SEQ_CST)
+
+static void ensure_crc_table_initialized(void) {
+    if (__atomic_load_n(&g_crc_init_state, __ATOMIC_ACQUIRE) == 2) return;
+    long expected = 0;
+    if (__atomic_compare_exchange_n(&g_crc_init_state, &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        CrcGenerateTable();
+        __atomic_store_n(&g_crc_init_state, 2, __ATOMIC_RELEASE);
+    } else {
+        while (__atomic_load_n(&g_crc_init_state, __ATOMIC_ACQUIRE) != 2) {
+            // Wait for CRC table initialization
+        }
+    }
+}
+
+static void *kio_malloc(size_t size) {
+    if (size == 0) return NULL;
+    void *ptr = malloc(size);
+    if (ptr != NULL) {
+        KIO_ATOMIC_INC(&g_active_allocations);
+    }
+    return ptr;
+}
+
+static void kio_free(void *ptr) {
+    if (ptr != NULL) {
+        KIO_ATOMIC_DEC(&g_active_allocations);
+        free(ptr);
+    }
+}
+
+static void *kio_realloc(void *ptr, size_t size) {
+    if (ptr == NULL) return kio_malloc(size);
+    if (size == 0) {
+        kio_free(ptr);
+        return NULL;
+    }
+    return realloc(ptr, size);
+}
+
+static char *kio_strdup(const char *str) {
+    if (str == NULL) return NULL;
+    size_t len = strlen(str) + 1;
+    char *copy = (char *)kio_malloc(len);
+    if (copy != NULL) {
+        memcpy(copy, str, len);
+    }
+    return copy;
+}
+
+static void *KioSzAlloc(ISzAllocPtr p, size_t size) {
+    (void)p;
+    return kio_malloc(size);
+}
+
+static void KioSzFree(ISzAllocPtr p, void *address) {
+    (void)p;
+    kio_free(address);
+}
+
+static void *KioMzAlloc(void *opaque, size_t items, size_t size) {
+    (void)opaque;
+    if (items == 0 || size == 0) return NULL;
+    return kio_malloc(items * size);
+}
+
+static void KioMzFree(void *opaque, void *address) {
+    (void)opaque;
+    kio_free(address);
+}
+
+static void *KioMzRealloc(void *opaque, void *address, size_t items, size_t size) {
+    (void)opaque;
+    return kio_realloc(address, items * size);
+}
+
+static void *KioBzAlloc(void *opaque, int items, int size) {
+    (void)opaque;
+    if (items <= 0 || size <= 0) return NULL;
+    return kio_malloc((size_t)items * (size_t)size);
+}
+
+static void KioBzFree(void *opaque, void *address) {
+    (void)opaque;
+    kio_free(address);
+}
+
 mz_ulong mz_crc32(mz_ulong crc, const mz_uint8 *ptr, size_t buf_len) {
     if (!ptr) return MZ_CRC32_INIT;
     return (mz_ulong)(CrcUpdate((UInt32)crc ^ CRC_INIT_VAL, ptr, buf_len) ^ CRC_INIT_VAL);
@@ -224,9 +316,12 @@ static size_t Miniz_Read_Callback_Ios(void *pOpaque, mz_uint64 file_ofs, void *p
 // Custom write callback for miniz streaming decompressed chunk into custom sink
 static size_t Miniz_Write_Callback_Ios(void *pOpaque, mz_uint64 file_ofs, const void *pBuf, size_t n) {
     kio_sink_t *ctx = (kio_sink_t *)pOpaque;
+    (void)file_ofs;
     if (n == 0) return 0;
 
-    ctx->write(ctx->opaque, (const uint8_t *)pBuf, (int32_t)n);
+    if (!ctx->write(ctx->opaque, (const uint8_t *)pBuf, (int32_t)n)) {
+        return 0;
+    }
     return n;
 }
 
@@ -391,8 +486,12 @@ static SRes scan_tar_gz_entries(ArchiveHandleIos *archive, int64_t raw_deflate_s
     SRes res = init_gzip_decoder(archive, decoder);
     if (res != SZ_OK) return res;
     int capacity = 16;
-    archive->tarGzEntries = (TarGzEntry *)malloc(capacity * sizeof(TarGzEntry));
+    archive->tarGzEntries = (TarGzEntry *)kio_malloc(capacity * sizeof(TarGzEntry));
     archive->tarGzCount = 0;
+    if (archive->tarGzEntries == NULL) {
+        free_gzip_decoder(decoder);
+        return SZ_ERROR_MEM;
+    }
     TarHeader header;
     int consecutive_zero_blocks = 0;
     while (1) {
@@ -439,7 +538,7 @@ static SRes scan_tar_gz_entries(ArchiveHandleIos *archive, int64_t raw_deflate_s
         int32_t is_dir = (header.typeflag == '5') ? 1 : 0;
         if (archive->tarGzCount >= capacity) {
             capacity *= 2;
-            TarGzEntry *new_entries = (TarGzEntry *)realloc(archive->tarGzEntries, capacity * sizeof(TarGzEntry));
+            TarGzEntry *new_entries = (TarGzEntry *)kio_realloc(archive->tarGzEntries, capacity * sizeof(TarGzEntry));
             if (new_entries == NULL) {
                 res = SZ_ERROR_MEM;
                 goto error;
@@ -447,7 +546,11 @@ static SRes scan_tar_gz_entries(ArchiveHandleIos *archive, int64_t raw_deflate_s
             archive->tarGzEntries = new_entries;
         }
         TarGzEntry *entry = &archive->tarGzEntries[archive->tarGzCount];
-        entry->name = strdup(full_name);
+        entry->name = kio_strdup(full_name);
+        if (entry->name == NULL) {
+            res = SZ_ERROR_MEM;
+            goto error;
+        }
         entry->size = file_size;
         entry->is_dir = is_dir;
         entry->header_offset = header_offset;
@@ -462,9 +565,9 @@ static SRes scan_tar_gz_entries(ArchiveHandleIos *archive, int64_t raw_deflate_s
 error:
     free_gzip_decoder(decoder);
     for (int i = 0; i < archive->tarGzCount; i++) {
-        free(archive->tarGzEntries[i].name);
+        kio_free(archive->tarGzEntries[i].name);
     }
-    free(archive->tarGzEntries);
+    kio_free(archive->tarGzEntries);
     archive->tarGzEntries = NULL;
     archive->tarGzCount = 0;
     return res;
@@ -488,9 +591,10 @@ static int validate_tar_header_checksum(const TarHeader *header) {
 }
 
 static SRes init_bzip2_decoder(ArchiveHandleIos *archive, Bzip2Decoder *decoder) {
+    (void)archive;
     memset(decoder, 0, sizeof(Bzip2Decoder));
-    decoder->stream.bzalloc = NULL;
-    decoder->stream.bzfree = NULL;
+    decoder->stream.bzalloc = KioBzAlloc;
+    decoder->stream.bzfree = KioBzFree;
     decoder->stream.opaque = NULL;
     int status = BZ2_bzDecompressInit(&decoder->stream, 0, 0);
     if (status != BZ_OK) {
@@ -564,8 +668,12 @@ static SRes scan_tar_bz2_entries(ArchiveHandleIos *archive, int64_t raw_bzip2_st
     SRes res = init_bzip2_decoder(archive, decoder);
     if (res != SZ_OK) return res;
     int capacity = 16;
-    archive->tarGzEntries = (TarGzEntry *)malloc(capacity * sizeof(TarGzEntry));
+    archive->tarGzEntries = (TarGzEntry *)kio_malloc(capacity * sizeof(TarGzEntry));
     archive->tarGzCount = 0;
+    if (archive->tarGzEntries == NULL) {
+        free_bzip2_decoder(decoder);
+        return SZ_ERROR_MEM;
+    }
     TarHeader header;
     int consecutive_zero_blocks = 0;
     while (1) {
@@ -612,7 +720,7 @@ static SRes scan_tar_bz2_entries(ArchiveHandleIos *archive, int64_t raw_bzip2_st
         int32_t is_dir = (header.typeflag == '5') ? 1 : 0;
         if (archive->tarGzCount >= capacity) {
             capacity *= 2;
-            TarGzEntry *new_entries = (TarGzEntry *)realloc(archive->tarGzEntries, capacity * sizeof(TarGzEntry));
+            TarGzEntry *new_entries = (TarGzEntry *)kio_realloc(archive->tarGzEntries, capacity * sizeof(TarGzEntry));
             if (new_entries == NULL) {
                 res = SZ_ERROR_MEM;
                 goto error;
@@ -620,7 +728,11 @@ static SRes scan_tar_bz2_entries(ArchiveHandleIos *archive, int64_t raw_bzip2_st
             archive->tarGzEntries = new_entries;
         }
         TarGzEntry *entry = &archive->tarGzEntries[archive->tarGzCount];
-        entry->name = strdup(full_name);
+        entry->name = kio_strdup(full_name);
+        if (entry->name == NULL) {
+            res = SZ_ERROR_MEM;
+            goto error;
+        }
         entry->size = file_size;
         entry->is_dir = is_dir;
         entry->header_offset = header_offset;
@@ -635,9 +747,9 @@ static SRes scan_tar_bz2_entries(ArchiveHandleIos *archive, int64_t raw_bzip2_st
 error:
     free_bzip2_decoder(decoder);
     for (int i = 0; i < archive->tarGzCount; i++) {
-        free(archive->tarGzEntries[i].name);
+        kio_free(archive->tarGzEntries[i].name);
     }
-    free(archive->tarGzEntries);
+    kio_free(archive->tarGzEntries);
     archive->tarGzEntries = NULL;
     archive->tarGzCount = 0;
     return res;
@@ -651,9 +763,9 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
     int isTarGz = 0;
     int isBzip2 = 0;
 
-    CrcGenerateTable();
+    ensure_crc_table_initialized();
 
-    archive = (ArchiveHandleIos *)malloc(sizeof(ArchiveHandleIos));
+    archive = (ArchiveHandleIos *)kio_malloc(sizeof(ArchiveHandleIos));
     if (archive == NULL) {
         set_error_msg(err_msg, err_msg_len, "Failed to allocate memory for archive handle");
         return 0;
@@ -666,7 +778,7 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
     int32_t bytesRead = source.read(source.opaque, magic, 8);
     if (bytesRead < 0) {
         set_error_msg(err_msg, err_msg_len, "Failed to read magic bytes from source");
-        free(archive);
+        kio_free(archive);
         return 0;
     }
 
@@ -700,10 +812,10 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
         archive->sevenZipBlockIndex = 0xFFFFFFFF;
         archive->sevenZipOutBuffer = NULL;
         archive->sevenZipOutBufferSize = 0;
-        archive->alloc.Alloc = SzAlloc;
-        archive->alloc.Free = SzFree;
-        archive->allocTemp.Alloc = SzAllocTemp;
-        archive->allocTemp.Free = SzFreeTemp;
+        archive->alloc.Alloc = KioSzAlloc;
+        archive->alloc.Free = KioSzFree;
+        archive->allocTemp.Alloc = KioSzAlloc;
+        archive->allocTemp.Free = KioSzFree;
 
         archive->ios7zStream.vt.Read = IosInStream_Read;
         archive->ios7zStream.vt.Seek = IosInStream_Seek;
@@ -713,7 +825,7 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
         archive->lookStream.buf = (Byte *)archive->alloc.Alloc(&archive->alloc, kInputBufSize);
         if (archive->lookStream.buf == NULL) {
             set_error_msg(err_msg, err_msg_len, "Failed to allocate 7z look stream buffer");
-            free(archive);
+            kio_free(archive);
             return 0;
         }
         archive->lookStream.bufSize = kInputBufSize;
@@ -732,7 +844,7 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
             set_error_msg(err_msg, err_msg_len, "Failed to open 7z archive: %s", err_str);
             archive->alloc.Free(&archive->alloc, archive->lookStream.buf);
             SzArEx_Free(&archive->db, &archive->alloc);
-            free(archive);
+            kio_free(archive);
             return 0;
         }
     } else if (isZip) {
@@ -740,6 +852,9 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
         int64_t totalLen = source.length(source.opaque);
 
         memset(&archive->zipArchive, 0, sizeof(mz_zip_archive));
+        archive->zipArchive.m_pAlloc = KioMzAlloc;
+        archive->zipArchive.m_pFree = KioMzFree;
+        archive->zipArchive.m_pRealloc = KioMzRealloc;
         archive->zipArchive.m_pRead = Miniz_Read_Callback_Ios;
         archive->zipArchive.m_pIO_opaque = &archive->source;
 
@@ -747,7 +862,7 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
         if (!zipRes) {
             mz_zip_error last_err = mz_zip_get_last_error(&archive->zipArchive);
             set_error_msg(err_msg, err_msg_len, "Failed to open zip archive: %s (code: %d)", mz_zip_get_error_string(last_err), last_err);
-            free(archive);
+            kio_free(archive);
             return 0;
         }
         archive->isZipInit = 1;
@@ -756,7 +871,7 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
         int64_t raw_deflate_start = skip_gzip_header(archive, 0);
         if (raw_deflate_start < 0) {
             set_error_msg(err_msg, err_msg_len, "Failed to parse Gzip header: Invalid header format");
-            free(archive);
+            kio_free(archive);
             return 0;
         }
         archive->tarGzRawDeflateStart = raw_deflate_start;
@@ -765,7 +880,7 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
             char err_str[128];
             get_7z_error_str(res, err_str, sizeof(err_str));
             set_error_msg(err_msg, err_msg_len, "Failed to scan tar.gz entries: %s", err_str);
-            free(archive);
+            kio_free(archive);
             return 0;
         }
     } else if (isBzip2) {
@@ -780,31 +895,45 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
             SRes readRes = read_bzip2_decompressed_bytes(archive, decoder, &header, 512, &processed, 0);
             free_bzip2_decoder(decoder);
 
+            if (readRes != SZ_OK) {
+                char err_str[128];
+                get_7z_error_str(readRes, err_str, sizeof(err_str));
+                set_error_msg(err_msg, err_msg_len, "Failed to open bzip2 archive: %s", err_str);
+                kio_free(archive);
+                return 0;
+            }
+
             source.seek(source.opaque, 0);
 
-            if (readRes == SZ_OK && processed >= 512 && validate_tar_header_checksum(&header)) {
+            if (processed >= 512 && validate_tar_header_checksum(&header)) {
                 archive->type = ARCHIVE_TYPE_TARBZ2;
                 SRes scanRes = scan_tar_bz2_entries(archive, 0);
                 if (scanRes != SZ_OK) {
                     char err_str[128];
                     get_7z_error_str(scanRes, err_str, sizeof(err_str));
                     set_error_msg(err_msg, err_msg_len, "Failed to scan tar.bz2 entries: %s", err_str);
-                    free(archive);
+                    kio_free(archive);
                     return 0;
                 }
             } else {
                 archive->type = ARCHIVE_TYPE_BZIP2;
                 archive->tarGzCount = 1;
-                archive->tarGzEntries = (TarGzEntry *)malloc(sizeof(TarGzEntry));
+                archive->tarGzEntries = (TarGzEntry *)kio_malloc(sizeof(TarGzEntry));
                 if (archive->tarGzEntries != NULL) {
-                    archive->tarGzEntries[0].name = strdup("extracted_data");
+                    archive->tarGzEntries[0].name = kio_strdup("extracted_data");
+                    if (archive->tarGzEntries[0].name == NULL) {
+                        kio_free(archive->tarGzEntries);
+                        kio_free(archive);
+                        set_error_msg(err_msg, err_msg_len, "Failed to allocate memory for Bzip2 entry name");
+                        return 0;
+                    }
                     archive->tarGzEntries[0].size = -1;
                     archive->tarGzEntries[0].is_dir = 0;
                     archive->tarGzEntries[0].header_offset = 0;
                     archive->tarGzEntries[0].data_offset = 0;
                 } else {
                     set_error_msg(err_msg, err_msg_len, "Failed to allocate memory for Bzip2 entry");
-                    free(archive);
+                    kio_free(archive);
                     return 0;
                 }
             }
@@ -812,12 +941,12 @@ uint64_t kio_open_archive(kio_source_t source, char *err_msg, int32_t err_msg_le
             char err_str[128];
             get_7z_error_str(initRes, err_str, sizeof(err_str));
             set_error_msg(err_msg, err_msg_len, "Failed to initialize bzip2 decoder: %s", err_str);
-            free(archive);
+            kio_free(archive);
             return 0;
         }
     } else {
         set_error_msg(err_msg, err_msg_len, "Unsupported archive format (only 7z, ZIP, tar.gz, bz2 and tar.bz2 are supported)");
-        free(archive);
+        kio_free(archive);
         return 0;
     }
 
@@ -849,12 +978,12 @@ void kio_close_archive(uint64_t handle) {
         free_bzip2_decoder(&archive->tarBz2Decoder);
         if (archive->tarGzEntries != NULL) {
             for (int i = 0; i < archive->tarGzCount; i++) {
-                free(archive->tarGzEntries[i].name);
+                kio_free(archive->tarGzEntries[i].name);
             }
-            free(archive->tarGzEntries);
+            kio_free(archive->tarGzEntries);
         }
     }
-    free(archive);
+    kio_free(archive);
 }
 
 int32_t kio_get_entry_count(uint64_t handle) {
@@ -883,7 +1012,7 @@ int32_t kio_get_entry(uint64_t handle, int32_t index, kio_entry_t *entry) {
     if (archive->type == ARCHIVE_TYPE_7Z) {
         size_t nameLen = SzArEx_GetFileNameUtf16(&archive->db, (size_t)index, NULL);
         if (nameLen > 0) {
-            UInt16 *nameBuf = (UInt16 *)malloc(nameLen * sizeof(UInt16));
+            UInt16 *nameBuf = (UInt16 *)kio_malloc(nameLen * sizeof(UInt16));
             if (nameBuf != NULL) {
                 SzArEx_GetFileNameUtf16(&archive->db, (size_t)index, nameBuf);
                 // In Kotlin/Native cinterop, we represent names as UTF-8. 
@@ -912,7 +1041,7 @@ int32_t kio_get_entry(uint64_t handle, int32_t index, kio_entry_t *entry) {
                 } else {
                     entry->name = strdup("");
                 }
-                free(nameBuf);
+                kio_free(nameBuf);
             } else {
                 entry->name = strdup("");
             }
@@ -983,7 +1112,10 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
                 size_t remaining = outSizeProcessed - bytesWritten;
                 size_t currentChunk = (remaining < chunkSize) ? remaining : chunkSize;
 
-                sink.write(sink.opaque, archive->sevenZipOutBuffer + offset + bytesWritten, (int32_t)currentChunk);
+                if (!sink.write(sink.opaque, archive->sevenZipOutBuffer + offset + bytesWritten, (int32_t)currentChunk)) {
+                    set_error_msg(err_msg, err_msg_len, "Write callback aborted extraction");
+                    return 0;
+                }
                 bytesWritten += currentChunk;
             }
         }
@@ -1018,7 +1150,7 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
 
         size_t bytesWritten = 0;
         size_t chunkSize = 65536;
-        unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
+        unsigned char *outBuffer = (unsigned char *)kio_malloc(chunkSize);
         if (outBuffer == NULL) {
             return 0;
         }
@@ -1033,11 +1165,14 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
                 break;
             }
 
-            sink.write(sink.opaque, outBuffer, (int32_t)processed);
+            if (!sink.write(sink.opaque, outBuffer, (int32_t)processed)) {
+                res = SZ_ERROR_WRITE;
+                break;
+            }
             bytesWritten += processed;
         }
 
-        free(outBuffer);
+        kio_free(outBuffer);
 
         if (res != SZ_OK || bytesWritten < (size_t)entry->size) {
             free_gzip_decoder(decoder);
@@ -1068,7 +1203,7 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
 
         size_t bytesWritten = 0;
         size_t chunkSize = 65536;
-        unsigned char *outBuffer = (unsigned char *)malloc(chunkSize);
+        unsigned char *outBuffer = (unsigned char *)kio_malloc(chunkSize);
         if (outBuffer == NULL) {
             return 0;
         }
@@ -1086,11 +1221,14 @@ int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char 
                 break;
             }
 
-            sink.write(sink.opaque, outBuffer, (int32_t)processed);
+            if (!sink.write(sink.opaque, outBuffer, (int32_t)processed)) {
+                res = SZ_ERROR_WRITE;
+                break;
+            }
             bytesWritten += processed;
         }
 
-        free(outBuffer);
+        kio_free(outBuffer);
 
         if (res != SZ_OK || (!isInfinite && bytesWritten < (size_t)targetSize)) {
             free_bzip2_decoder(decoder);
@@ -1119,6 +1257,10 @@ uint64_t kio_get_resident_memory(void) {
 #endif
 }
 
+int64_t kio_get_active_allocations(void) {
+    return (int64_t)KIO_ATOMIC_LOAD(&g_active_allocations);
+}
+
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 
@@ -1133,5 +1275,11 @@ int32_t kio_extract_entry_wasm(uint64_t handle, int32_t index, kio_sink_t *sink,
     if (!sink) return 0;
     return kio_extract_entry(handle, index, *sink, err_msg, err_msg_len);
 }
+
+EMSCRIPTEN_KEEPALIVE
+int32_t kio_get_active_allocations_wasm(void) {
+    return (int32_t)KIO_ATOMIC_LOAD(&g_active_allocations);
+}
 #endif
+
 

@@ -42,6 +42,8 @@ class ArchiveReaderIosTest {
 
     @Test
     fun testThreadSafety() {
+        val baseAlloc = getActiveNativeAllocations()
+        val baseRefs = getActivePlatformReferences()
         KioArch.createReader(tinyZipBytes).use { reader ->
             val entries = reader.getEntries()
             assertEquals(1, entries.size)
@@ -49,6 +51,7 @@ class ArchiveReaderIosTest {
             val numThreads = 10
             val lock = NSLock()
             var finishedThreads = 0
+            var threadError: Throwable? = null
 
             repeat(numThreads) {
                 NSThread.detachNewThreadWithBlock {
@@ -60,6 +63,10 @@ class ArchiveReaderIosTest {
                             val buffer = Buffer()
                             reader.extractEntry(list[0], buffer)
                             assertEquals("hello", buffer.readByteArray().decodeToString())
+                        }
+                    } catch (t: Throwable) {
+                        lock.withLock {
+                            if (threadError == null) threadError = t
                         }
                     } finally {
                         lock.withLock {
@@ -79,6 +86,79 @@ class ArchiveReaderIosTest {
 
             val done = lock.withLock { finishedThreads == numThreads }
             assertTrue(done, "Not all threads finished in time")
+            threadError?.let { throw it }
+        }
+        assertEquals(baseAlloc, getActiveNativeAllocations())
+        assertEquals(baseRefs, getActivePlatformReferences())
+    }
+
+    @Test
+    @Suppress("LongMethod")
+    fun testConcurrentCloseAndExtractRaceSafetyIos() {
+        val baseAlloc = getActiveNativeAllocations()
+        val baseRefs = getActivePlatformReferences()
+
+        repeat(15) {
+            val reader = KioArch.createReader(tinyZipBytes)
+            val entry = reader.getEntries().first()
+            val numExtractors = 4
+            val numClosers = 2
+            val totalThreads = numExtractors + numClosers
+            val lock = NSLock()
+            var finishedThreads = 0
+            var unexpectedError: Throwable? = null
+
+            repeat(numExtractors) {
+                NSThread.detachNewThreadWithBlock {
+                    try {
+                        repeat(20) {
+                            val buffer = Buffer()
+                            reader.extractEntry(entry, buffer)
+                            assertEquals("hello", buffer.readByteArray().decodeToString())
+                        }
+                    } catch (e: IllegalStateException) {
+                        if (e.message?.contains("closed", ignoreCase = true) != true) {
+                            lock.withLock {
+                                if (unexpectedError == null) unexpectedError = e
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        lock.withLock {
+                            if (unexpectedError == null) unexpectedError = t
+                        }
+                    } finally {
+                        lock.withLock { finishedThreads++ }
+                    }
+                }
+            }
+
+            repeat(numClosers) {
+                NSThread.detachNewThreadWithBlock {
+                    try {
+                        usleep(500u)
+                        reader.close()
+                    } catch (t: Throwable) {
+                        lock.withLock {
+                            if (unexpectedError == null) unexpectedError = t
+                        }
+                    } finally {
+                        lock.withLock { finishedThreads++ }
+                    }
+                }
+            }
+
+            var totalWaitMs = 0
+            while (totalWaitMs < 5000) {
+                val done = lock.withLock { finishedThreads == totalThreads }
+                if (done) break
+                usleep(5000u)
+                totalWaitMs += 5
+            }
+            reader.close()
+            assertTrue(lock.withLock { finishedThreads == totalThreads })
+            unexpectedError?.let { throw it }
+            assertEquals(baseAlloc, getActiveNativeAllocations())
+            assertEquals(baseRefs, getActivePlatformReferences())
         }
     }
 

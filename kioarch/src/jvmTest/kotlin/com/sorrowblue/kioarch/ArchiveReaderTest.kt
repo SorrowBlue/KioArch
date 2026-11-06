@@ -4,6 +4,8 @@ import com.sun.management.ThreadMXBean
 import java.io.File
 import java.io.FileOutputStream
 import java.lang.management.ManagementFactory
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CyclicBarrier
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.concurrent.thread
@@ -250,6 +252,136 @@ class ArchiveReaderTest {
         val bz2File = File(System.getProperty("TEST_BZ2_PATH"))
         KioArch.createReader(bz2File).use { reader ->
             reader.verifyDoubleCloseAndClosedAccess()
+        }
+    }
+
+    @Test
+    fun testHighContentionMultiThreadedStressAllFormats() {
+        val baseAlloc = KioArchJni.getActiveNativeAllocations()
+        val baseRefs = KioArchJni.getActiveJniGlobalRefs()
+
+        val formatProps = listOf(
+            "LARGE_ZIP_PATH",
+            "LARGE_7Z_PATH",
+            "LARGE_TARGZ_PATH",
+            "TEST_TARBZ2_PATH",
+            "TEST_BZ2_PATH"
+        )
+
+        for (prop in formatProps) {
+            val file = File(System.getProperty(prop))
+            KioArch.createReader(file).use { sharedReader ->
+                val entries = sharedReader.getEntries().filter { !it.isDirectory }.take(12)
+                assertTrue(entries.isNotEmpty(), "Expected entries for $prop")
+
+                val numThreads = 8
+                val barrier = CyclicBarrier(numThreads)
+                val errors = ConcurrentLinkedQueue<Throwable>()
+
+                val threads = List(numThreads) { threadIdx ->
+                    thread(start = false) {
+                        try {
+                            barrier.await()
+                            // 1. Contend on the shared reader
+                            for (i in entries.indices) {
+                                val entry = entries[(i + threadIdx) % entries.size]
+                                val buf = Buffer()
+                                sharedReader.extractEntry(entry, buf)
+                                if (entry.size >= 0) {
+                                    assertEquals(entry.size, buf.size)
+                                } else {
+                                    assertTrue(buf.size > 0)
+                                }
+                            }
+                            // 2. Simultaneously open and extract from an independent File reader
+                            KioArch.createReader(file).use { ownReader ->
+                                val ownEntry = ownReader.getEntries().first { !it.isDirectory }
+                                val ownBuf = Buffer()
+                                ownReader.extractEntry(ownEntry, ownBuf)
+                                if (ownEntry.size >= 0) {
+                                    assertEquals(ownEntry.size, ownBuf.size)
+                                } else {
+                                    assertTrue(ownBuf.size > 0)
+                                }
+                            }
+                        } catch (t: Throwable) {
+                            errors.add(t)
+                        }
+                    }
+                }
+
+                threads.forEach { it.start() }
+                threads.forEach { it.join() }
+
+                if (errors.isNotEmpty()) {
+                    throw AssertionError("Thread failed in $prop", errors.first())
+                }
+            }
+            assertEquals(baseAlloc, KioArchJni.getActiveNativeAllocations())
+            assertEquals(baseRefs, KioArchJni.getActiveJniGlobalRefs())
+        }
+    }
+
+    @Test
+    fun testConcurrentCloseAndExtractRaceSafety() {
+        val baseAlloc = KioArchJni.getActiveNativeAllocations()
+        val baseRefs = KioArchJni.getActiveJniGlobalRefs()
+        val bulkZipFile = File(System.getProperty("TEST_BULK_ZIP_PATH"))
+
+        repeat(20) {
+            val reader = KioArch.createReader(bulkZipFile)
+            val entries = reader.getEntries().filter { entry -> !entry.isDirectory }
+            val numExtractors = 6
+            val numClosers = 2
+            val barrier = CyclicBarrier(numExtractors + numClosers)
+            val unexpectedErrors = ConcurrentLinkedQueue<Throwable>()
+
+            val extractors = List(numExtractors) { idx ->
+                thread(start = false) {
+                    try {
+                        barrier.await()
+                        for (entry in entries) {
+                            val out = Buffer()
+                            reader.extractEntry(entry, out)
+                            assertEquals(entry.size, out.size)
+                            if (idx == 0) {
+                                reader.getEntries()
+                            }
+                        }
+                    } catch (e: IllegalStateException) {
+                        assertTrue(
+                            e.message?.contains("closed", ignoreCase = true) == true,
+                            "Unexpected IllegalStateException: ${e.message}"
+                        )
+                    } catch (t: Throwable) {
+                        unexpectedErrors.add(t)
+                    }
+                }
+            }
+
+            val closers = List(numClosers) {
+                thread(start = false) {
+                    try {
+                        barrier.await()
+                        reader.close()
+                    } catch (t: Throwable) {
+                        unexpectedErrors.add(t)
+                    }
+                }
+            }
+
+            (extractors + closers).forEach { worker -> worker.start() }
+            (extractors + closers).forEach { worker -> worker.join() }
+            reader.close()
+
+            if (unexpectedErrors.isNotEmpty()) {
+                throw AssertionError(
+                    "Unexpected error during concurrent close race",
+                    unexpectedErrors.first()
+                )
+            }
+            assertEquals(baseAlloc, KioArchJni.getActiveNativeAllocations())
+            assertEquals(baseRefs, KioArchJni.getActiveJniGlobalRefs())
         }
     }
 }

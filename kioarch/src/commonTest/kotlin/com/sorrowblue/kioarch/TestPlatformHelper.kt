@@ -12,6 +12,10 @@ internal expect val isLargeContentVerificationEnabled: Boolean
 
 internal expect val isCallbackExceptionSupported: Boolean
 
+internal expect fun getActiveNativeAllocations(): Long
+
+internal expect fun getActivePlatformReferences(): Long
+
 internal fun getFileNameFromEnvVar(envVarName: String): String = when (envVarName) {
     "TEST_ZIP_PATH" -> "test.zip"
     "TEST_7Z_PATH" -> "test.7z"

@@ -28,6 +28,9 @@ abstract class CompileJvmNativesTask @Inject constructor(
     @get:Input
     abstract val targetOs: Property<TargetOs>
 
+    @get:Input
+    abstract val enableAsan: Property<Boolean>
+
     @TaskAction
     fun compile() {
         val sourceDir = cppSourceDir.get().asFile
@@ -109,6 +112,8 @@ abstract class CompileJvmNativesTask @Inject constructor(
 
     private fun configureCMake(sourceDir: File, buildDir: File) {
         val buildPath = buildDir.absolutePath
+        val isAsan = enableAsan.getOrElse(false)
+        val asanFlag = if (isAsan) "-DKIOARCH_ENABLE_ASAN=ON" else "-DKIOARCH_ENABLE_ASAN=OFF"
         val configureArgs = if (targetOs.get() == TargetOs.Windows) {
             val vcvarsall = findVcvarsallBat()
             if (vcvarsall != null) {
@@ -116,13 +121,13 @@ abstract class CompileJvmNativesTask @Inject constructor(
                     "cmd",
                     "/c",
                     "call \"${vcvarsall.absolutePath}\" amd64 && " +
-                        "cmake -S . -B \"$buildPath\" -DCMAKE_BUILD_TYPE=Release"
+                        "cmake -S . -B \"$buildPath\" -DCMAKE_BUILD_TYPE=Release $asanFlag"
                 )
             } else {
-                listOf("cmake", "-S", ".", "-B", buildPath, "-DCMAKE_BUILD_TYPE=Release")
+                listOf("cmake", "-S", ".", "-B", buildPath, "-DCMAKE_BUILD_TYPE=Release", asanFlag)
             }
         } else {
-            listOf("cmake", "-S", ".", "-B", buildPath, "-DCMAKE_BUILD_TYPE=Release")
+            listOf("cmake", "-S", ".", "-B", buildPath, "-DCMAKE_BUILD_TYPE=Release", asanFlag)
         }
 
         val process = try {

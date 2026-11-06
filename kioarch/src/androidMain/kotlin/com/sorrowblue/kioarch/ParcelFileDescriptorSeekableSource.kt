@@ -63,8 +63,16 @@ public class ParcelFileDescriptorSeekableSource(private val pfd: ParcelFileDescr
  * @param pfd the parcel file descriptor of the archive file
  * @return an [ArchiveReader] to read the archive
  */
-public fun KioArch.createReader(pfd: ParcelFileDescriptor): ArchiveReader =
-    createReader(ParcelFileDescriptorSeekableSource(pfd))
+@Suppress("TooGenericExceptionCaught")
+public fun KioArch.createReader(pfd: ParcelFileDescriptor): ArchiveReader {
+    val source = ParcelFileDescriptorSeekableSource(pfd)
+    return try {
+        createReader(source)
+    } catch (t: Throwable) {
+        source.close()
+        throw t
+    }
+}
 
 /**
  * Extension helper to create an [ArchiveReader] directly from an Android [Uri].

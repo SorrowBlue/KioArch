@@ -21,3 +21,13 @@ internal actual suspend fun getTestFilePath(envVarName: String): Path? {
 internal actual val isLargeContentVerificationEnabled: Boolean = true
 
 internal actual val isCallbackExceptionSupported: Boolean = true
+
+internal actual fun getActiveNativeAllocations(): Long {
+    HostTestNativeLoader.loadIfNeeded()
+    return KioArchJni.getActiveNativeAllocations()
+}
+
+internal actual fun getActivePlatformReferences(): Long {
+    HostTestNativeLoader.loadIfNeeded()
+    return KioArchJni.getActiveJniGlobalRefs()
+}

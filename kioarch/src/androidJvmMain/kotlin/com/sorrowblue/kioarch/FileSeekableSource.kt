@@ -48,4 +48,13 @@ public class FileSeekableSource(file: File) : DirectSeekableSource {
 /**
  * Extension helper to create an [ArchiveReader] directly from a [File].
  */
-public fun KioArch.createReader(file: File): ArchiveReader = createReader(FileSeekableSource(file))
+@Suppress("TooGenericExceptionCaught")
+public fun KioArch.createReader(file: File): ArchiveReader {
+    val source = FileSeekableSource(file)
+    return try {
+        createReader(source)
+    } catch (t: Throwable) {
+        source.close()
+        throw t
+    }
+}

@@ -23,7 +23,9 @@ public sealed class ArchiveException(message: String, cause: Throwable? = null) 
     Exception(
         message,
         cause
-    )
+    ) {
+    protected constructor(message: String) : this(message, null)
+}
 
 /**
  * Exception thrown when the archive is corrupted or its data structure is invalid.
@@ -42,7 +44,9 @@ public class ArchiveIOException(message: String, cause: Throwable? = null) :
     ArchiveException(
         message,
         cause
-    )
+    ) {
+    public constructor(message: String) : this(message, null)
+}
 
 /**
  * Exception thrown when native memory allocation fails.

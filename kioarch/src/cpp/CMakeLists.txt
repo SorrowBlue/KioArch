@@ -67,6 +67,8 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+option(KIOARCH_ENABLE_ASAN "Enable AddressSanitizer" OFF)
+
 add_definitions(
     -DZ7_ST
     -DMINIZ_LITTLE_ENDIAN=1
@@ -95,7 +97,7 @@ if(EMSCRIPTEN)
     target_compile_options(kioarch PRIVATE -O3 -DNDEBUG)
     target_link_options(kioarch PRIVATE
         "-O3"
-        "-sEXPORTED_FUNCTIONS=['_kio_open_archive','_kio_open_archive_wasm','_kio_close_archive','_kio_get_entry_count','_kio_get_entry','_kio_extract_entry','_kio_extract_entry_wasm','_malloc','_free']"
+        "-sEXPORTED_FUNCTIONS=['_kio_open_archive','_kio_open_archive_wasm','_kio_close_archive','_kio_get_entry_count','_kio_get_entry','_kio_extract_entry','_kio_extract_entry_wasm','_kio_get_active_allocations','_kio_get_active_allocations_wasm','_malloc','_free']"
         "-sEXPORTED_RUNTIME_METHODS=['cwrap','ccall','addFunction','removeFunction','UTF8ToString','HEAP8','HEAPU8','HEAP16','HEAPU16','HEAP32','HEAPU32','HEAPF32','HEAPF64','HEAP64','HEAPU64']"
         "-sALLOW_TABLE_GROWTH=1"
         "-sALLOW_MEMORY_GROWTH=1"
@@ -137,6 +139,10 @@ else()
         target_compile_options(kioarch PRIVATE /O2 /DNDEBUG)
     else()
         target_compile_options(kioarch PRIVATE -O3 -DNDEBUG)
+        if(KIOARCH_ENABLE_ASAN)
+            target_compile_options(kioarch PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
+            target_link_options(kioarch PRIVATE -fsanitize=address)
+        endif()
     endif()
 endif()
 

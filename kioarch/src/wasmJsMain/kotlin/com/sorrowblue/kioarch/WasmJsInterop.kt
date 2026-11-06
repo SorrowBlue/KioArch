@@ -108,9 +108,9 @@ private external fun initSinkMapInternal()
 internal fun initSinkMap(): Unit = initSinkMapInternal()
 
 @JsFun("(id, writeFn) => { globalThis.kioarchSinks.set(id, { write: writeFn }); }")
-private external fun putSinkJsInternal(id: Int, writeFn: (Int, Int) -> Unit)
+private external fun putSinkJsInternal(id: Int, writeFn: (Int, Int) -> Int)
 
-internal fun putSinkJs(id: Int, writeFn: (Int, Int) -> Unit): Unit = putSinkJsInternal(id, writeFn)
+internal fun putSinkJs(id: Int, writeFn: (Int, Int) -> Int): Unit = putSinkJsInternal(id, writeFn)
 
 @JsFun("(id) => { globalThis.kioarchSinks.delete(id); }")
 private external fun removeSinkJsInternal(id: Int)
@@ -166,9 +166,10 @@ internal fun registerLenCallback(module: JsAny): Int = registerLenCallbackIntern
     """(module) => module.addFunction(function(opaqueId, bufPtr, len) {
         var sink = globalThis.kioarchSinks.get(opaqueId);
         if (sink) {
-            sink.write(bufPtr, len);
+            return sink.write(bufPtr, len);
         }
-    }, 'viii')"""
+        return 0;
+    }, 'iiii')"""
 )
 private external fun registerWriteCallbackInternal(module: JsAny): Int
 
@@ -334,6 +335,15 @@ private external fun wasmRemoveFunctionInternal(module: JsAny, ptr: Int)
 
 internal fun wasmRemoveFunction(module: JsAny, ptr: Int): Unit =
     wasmRemoveFunctionInternal(module, ptr)
+
+@JsFun(
+    """(module) => typeof module._kio_get_active_allocations_wasm === 'function'
+        ? module._kio_get_active_allocations_wasm()
+        : 0"""
+)
+private external fun wasmGetActiveAllocationsInternal(module: JsAny): Int
+
+internal fun wasmGetActiveAllocations(module: JsAny): Int = wasmGetActiveAllocationsInternal(module)
 
 // --- Dynamic Memory Copy Helpers ---
 
