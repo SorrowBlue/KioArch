@@ -116,7 +116,12 @@ abstract class CompileWasmNativesTask @Inject constructor(
             logger.error("CMake Wasm Configure Output:\n$output")
             throw GradleException(
                 "CMake Wasm configure failed with exit code $exitCode. Output:\n$output"
-            )
+            ).apply {
+                addResolution(
+                    "Ensure Emscripten SDK (emsdk) and CMake are installed and properly " +
+                        "configured via 'emsdk.dir' in local.properties or system PATH."
+                )
+            }
         }
     }
 
@@ -161,7 +166,12 @@ abstract class CompileWasmNativesTask @Inject constructor(
             logger.error("CMake Wasm Build Output:\n$output")
             throw GradleException(
                 "CMake Wasm build failed with exit code $exitCode. Output:\n$output"
-            )
+            ).apply {
+                addResolution(
+                    "Ensure Emscripten SDK (emsdk) and CMake are installed and properly " +
+                        "configured via 'emsdk.dir' in local.properties or system PATH."
+                )
+            }
         }
     }
 

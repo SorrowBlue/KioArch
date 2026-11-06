@@ -54,10 +54,11 @@ abstract class CompileJvmNativesTask @Inject constructor(
 
     private fun checkToolsAvailability() {
         if (!isCommandAvailable("cmake")) {
-            throw GradleException(
-                "CMake is not installed or not available in your PATH.\n" +
-                    "Please install CMake and ensure it is registered in your system PATH."
-            )
+            throw GradleException("CMake is not installed or not available in your PATH.").apply {
+                addResolution(
+                    "Install CMake and ensure it is registered in your system PATH."
+                )
+            }
         }
 
         if (targetOs.get() == TargetOs.Windows) {
@@ -66,13 +67,13 @@ abstract class CompileJvmNativesTask @Inject constructor(
                 isCommandAvailable("clang") ||
                 hasVisualStudioInstalled()
             if (!hasCompiler) {
-                throw GradleException(
-                    "C/C++ compiler could not be found.\n" +
-                        "For Windows, please ensure Visual Studio is installed with " +
-                        "the 'Desktop development with C++' workload.\n" +
-                        "Alternatively, install a compatible compiler like MinGW or " +
-                        "Clang and add it to your PATH."
-                )
+                throw GradleException("C/C++ compiler could not be found.").apply {
+                    addResolution(
+                        "For Windows, ensure Visual Studio is installed with " +
+                            "the 'Desktop development with C++' workload, or install a " +
+                            "compatible compiler like MinGW or Clang and add it to your PATH."
+                    )
+                }
             }
         }
     }
@@ -143,21 +144,21 @@ abstract class CompileJvmNativesTask @Inject constructor(
                 .start()
         } catch (e: java.io.IOException) {
             throw GradleException(
-                "Failed to run 'cmake'. " +
-                    "Please make sure CMake is installed and available in your PATH.\n" +
-                    "Error details: ${e.message}",
+                "Failed to run 'cmake'. Error details: ${e.message}",
                 e
-            )
+            ).apply {
+                addResolution("Make sure CMake is installed and available in your PATH.")
+            }
         }
         val output = process.inputStream.bufferedReader().readText()
         val exitCode = process.waitFor()
         if (exitCode != 0) {
             logger.error("CMake Configure Output:\n$output")
-            val additionalMsg = getCompilerMissingMessage(output)
             throw GradleException(
-                "CMake configure failed with exit code $exitCode.$additionalMsg\n\n" +
-                    "CMake Output:\n$output"
-            )
+                "CMake configure failed with exit code $exitCode.\n\nCMake Output:\n$output"
+            ).apply {
+                getCompilerMissingResolution(output)?.let { addResolution(it) }
+            }
         }
     }
 
@@ -186,11 +187,11 @@ abstract class CompileJvmNativesTask @Inject constructor(
                 .start()
         } catch (e: java.io.IOException) {
             throw GradleException(
-                "Failed to run 'cmake --build'. " +
-                    "Please make sure CMake is installed and available in your PATH.\n" +
-                    "Error details: ${e.message}",
+                "Failed to run 'cmake --build'. Error details: ${e.message}",
                 e
-            )
+            ).apply {
+                addResolution("Make sure CMake is installed and available in your PATH.")
+            }
         }
         val output = process.inputStream.bufferedReader().readText()
         val exitCode = process.waitFor()
@@ -221,28 +222,27 @@ abstract class CompileJvmNativesTask @Inject constructor(
         }
     }
 
-    private fun getCompilerMissingMessage(output: String): String {
+    private fun getCompilerMissingResolution(output: String): String? {
         val hasCompilerError = output.contains("CMAKE_C_COMPILER not set") ||
             output.contains("no such file or directory") ||
             output.contains("No CMAKE_C_COMPILER could be found")
-        if (!hasCompilerError) return ""
+        if (!hasCompilerError) return null
 
         return when (targetOs.get()) {
             TargetOs.Windows -> {
-                "\n\n[Error Reason] C/C++ compiler (MSVC) could not be found.\n" +
-                    "For Windows, please ensure Visual Studio is installed with the " +
-                    "'Desktop development with C++' workload.\n" +
-                    "Alternatively, make sure a compatible compiler (like MinGW or Clang) is installed and registered in your PATH."
+                "C/C++ compiler (MSVC) could not be found. For Windows, ensure Visual Studio is " +
+                    "installed with the 'Desktop development with C++' workload, or make sure a " +
+                    "compatible compiler (like MinGW or Clang) is installed and registered in your PATH."
             }
 
             TargetOs.MacOS -> {
-                "\n\n[Error Reason] C/C++ compiler (Clang) could not be found.\n" +
-                    "For macOS, please install Xcode Command Line Tools using 'xcode-select --install'."
+                "C/C++ compiler (Clang) could not be found. For macOS, install Xcode Command " +
+                    "Line Tools using 'xcode-select --install'."
             }
 
             else -> {
-                "\n\n[Error Reason] C/C++ compiler could not be found.\n" +
-                    "For Linux, please install gcc/g++ or clang using your package manager (e.g., 'sudo apt install build-essential')."
+                "C/C++ compiler could not be found. For Linux, install gcc/g++ or clang using " +
+                    "your package manager (e.g., 'sudo apt install build-essential')."
             }
         }
     }

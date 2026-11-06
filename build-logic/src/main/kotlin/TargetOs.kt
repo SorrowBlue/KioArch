@@ -1,3 +1,4 @@
+import org.gradle.api.provider.Provider
 import org.gradle.api.provider.ProviderFactory
 
 enum class TargetOs(val osName: String, val libName: String, val output: String) {
@@ -6,9 +7,11 @@ enum class TargetOs(val osName: String, val libName: String, val output: String)
     Linux("linux", "libkioarch.so", "linux/amd64");
 
     companion object {
-        fun ProviderFactory.currentOs(): TargetOs? {
+        @Suppress("UnstableApiUsage")
+        fun ProviderFactory.currentOs(): Provider<TargetOs> {
             val osName = systemProperty("os.name").map { it.lowercase() }.get()
-            return TargetOs.entries.firstOrNull { osName.contains(it.osName) }
+            val matched = TargetOs.entries.firstOrNull { osName.contains(it.osName) }
+            return presentIfNotNull(matched)
         }
     }
 }
