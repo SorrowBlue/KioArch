@@ -12,7 +12,7 @@ jmh = "1.37"
 xchart = "4.0.4"
 vectorgraphics2d = "0.13"
 sevenzipjbindingAndroid = "16.02-2.4"
-sevenzipjbindingJvm = "16.02-2.01"
+sevenzipjbindingJvm = "23.01-2.2"
 
 # Libraries
 java = "21"
