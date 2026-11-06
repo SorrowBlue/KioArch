@@ -56,6 +56,10 @@ internal actual val isLargeContentVerificationEnabled: Boolean = false
 
 internal actual val isCallbackExceptionSupported: Boolean = true
 
+internal actual fun getActiveNativeAllocations(): Long = getJsActiveNativeAllocations()
+
+internal actual fun getActivePlatformReferences(): Long = getJsActiveOpaqueReferences()
+
 /**
  * Reads a test archive file specified by the given environment variable [envVarName]
  * using Node.js native 'node:fs' synchronous API in Node.js,

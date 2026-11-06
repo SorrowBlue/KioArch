@@ -49,4 +49,6 @@ internal object KioArchJni {
         directBuffer: ByteBuffer,
         callback: DirectExtractCallback
     ): Boolean
+    external fun getActiveNativeAllocations(): Long
+    external fun getActiveJniGlobalRefs(): Long
 }

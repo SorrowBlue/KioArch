@@ -56,6 +56,7 @@ tasks.withType<Test>().configureEach {
     val outputDirProvider = generateTestFiles.flatMap { it.outputDir }
     inputs.dir(outputDirProvider)
     failOnNoDiscoveredTests.set(false)
+    jvmArgs("-Xcheck:jni")
     val testDir = outputDirProvider.get().asFile.absolutePath
     testEnvVars(testDir).forEach { (key, value) ->
         systemProperty(key, value)

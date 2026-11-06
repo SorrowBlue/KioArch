@@ -138,6 +138,10 @@ private fun copyFromHeap(module: JsAny, bufPtr: Int, byteArray: ByteArray, len: 
 private val opaqueMap = mutableMapOf<Int, Any>()
 private var nextOpaqueId = 1
 
+private class WasmSourceContext(val source: SeekableSource, var pendingException: Throwable? = null)
+
+private class WasmSinkContext(val sink: Sink, var pendingException: Throwable? = null)
+
 private fun registerOpaque(obj: Any): Int {
     val id = nextOpaqueId++
     opaqueMap[id] = obj
@@ -150,26 +154,15 @@ private fun releaseOpaque(id: Int) {
     opaqueMap.remove(id)
 }
 
+internal fun getWasmActiveNativeAllocations(): Long =
+    wasmModule?.let { wasmGetActiveAllocations(it).toLong() } ?: 0L
+
+internal fun getWasmActiveOpaqueReferences(): Long = opaqueMap.size.toLong()
+
 /**
  * WasmJs implementation of [KioArch] utilizing WebAssembly compiled from pure C archive engines.
  */
 public actual object KioArch {
-
-    @Suppress("MagicNumber")
-    private fun isBzip2(source: SeekableSource): Boolean {
-        val current = source.position()
-        source.seek(0)
-        val buf = ByteArray(3)
-        val read = source.read(buf, 0, 3)
-        source.seek(current)
-        return read >= 3 &&
-            buf[0] == 0x42.toByte() &&
-            buf[1] == 0x5A.toByte() &&
-            buf[2] == 0x68.toByte()
-    }
-
-    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader =
-        if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
 
     /**
      * Creates an [ArchiveReader] from a custom [SeekableSource] for WasmJs.
@@ -182,14 +175,15 @@ public actual object KioArch {
     public actual fun createReader(source: SeekableSource): ArchiveReader {
         val module = wasmModule ?: throwNotInitializedWasm()
 
-        val sourceOpaqueId = registerOpaque(source)
+        val sourceCtx = WasmSourceContext(source)
+        val sourceOpaqueId = registerOpaque(sourceCtx)
         var sourcePtr = 0
         var ptrs: WasmSourceCallbackPtrs? = null
         var handle: JsAny? = null
 
-        try {
+        val reader = try {
             // Register Kotlin SeekableSource callbacks into JS global map
-            putWasmSourceCallbacks(module, sourceOpaqueId)
+            putWasmSourceCallbacks(module, sourceOpaqueId, sourceCtx)
 
             // Register C-compatible callback function pointers in Emscripten
             ptrs = registerWasmSourceCallbacks(module)
@@ -208,32 +202,40 @@ public actual object KioArch {
                 val rawHandle = wasmOpenArchive(module, sourcePtr, errMsgPtr, ErrMsgBufferSize)
                 val handleVal = toBigInt(rawHandle)
 
+                if (!isZeroBigInt(handleVal)) {
+                    handle = handleVal
+                }
+                sourceCtx.pendingException?.let {
+                    sourceCtx.pendingException = null
+                    throw it
+                }
                 if (isZeroBigInt(handleVal)) {
                     val errMsg = wasmUtf8ToString(module, errMsgPtr)
                     throw ArchiveIOException("Failed to open archive. Native error: $errMsg")
                 }
-                handle = handleVal
             } finally {
                 wasmFree(module, errMsgPtr)
             }
 
-            return wrapIfNeeded(
-                source,
-                WasmArchiveReader(
-                    module,
-                    sourceOpaqueId,
-                    sourcePtr,
-                    ptrs.readPtr,
-                    ptrs.seekPtr,
-                    ptrs.posPtr,
-                    ptrs.lenPtr,
-                    handle
-                )
+            WasmArchiveReader(
+                module,
+                sourceOpaqueId,
+                sourceCtx,
+                sourcePtr,
+                ptrs.readPtr,
+                ptrs.seekPtr,
+                ptrs.posPtr,
+                ptrs.lenPtr,
+                handle!!
             )
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
+            if (handle != null) {
+                wasmCloseArchive(module, handle)
+            }
             cleanupWasmSourcePtrs(module, sourcePtr, ptrs, sourceOpaqueId)
-            throw e
+            throw t
         }
+        return wrapWithBzip2IfNeeded(source, reader)
     }
 
     /**
@@ -253,12 +255,19 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
+    @Suppress("TooGenericExceptionCaught")
     public actual fun createReader(path: Path): ArchiveReader {
         if (isNodeJsWasm()) {
             val module = wasmModule ?: throw IllegalStateException(
                 "KioArch has not been initialized. Call KioArch.initialize(module) first."
             )
-            return createReader(NodeFileSeekableSource(path.toString(), module))
+            val source = NodeFileSeekableSource(path.toString(), module)
+            return try {
+                createReader(source)
+            } catch (t: Throwable) {
+                source.close()
+                throw t
+            }
         }
         throw UnsupportedOperationException(
             "File system access using Path is not supported in browser WasmJs environment. " +
@@ -267,65 +276,94 @@ public actual object KioArch {
     }
 }
 
-@Suppress("SwallowedException", "TooGenericExceptionCaught", "LongMethod")
-private fun putWasmSourceCallbacks(module: JsAny, sourceOpaqueId: Int) {
+@Suppress(
+    "SwallowedException",
+    "TooGenericExceptionCaught",
+    "LongMethod",
+    "CyclomaticComplexMethod"
+)
+private fun putWasmSourceCallbacks(
+    module: JsAny,
+    sourceOpaqueId: Int,
+    sourceCtx: WasmSourceContext
+) {
     var readBuffer = ByteArray(InitialReadBufferSize)
     putSourceJs(
         sourceOpaqueId,
         readFn = { bufPtr, len ->
-            val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-            if (innerSource == null) {
+            if (sourceCtx.pendingException != null) {
                 -1
-            } else if (innerSource is ByteArraySeekableSource) {
-                val srcBytes = innerSource.bytes
-                val currentPos = innerSource.position().toInt()
-                if (currentPos >= srcBytes.size) {
-                    -1
-                } else {
-                    val toRead = minOf(len, srcBytes.size - currentPos)
-                    if (toRead > 0) {
-                        copyToHeap(module, bufPtr, srcBytes, currentPos, toRead)
-                        innerSource.seek((currentPos + toRead).toLong())
-                    }
-                    toRead
-                }
             } else {
+                val innerSource = sourceCtx.source
                 try {
-                    if (readBuffer.size < len) {
-                        readBuffer = ByteArray(len)
+                    if (innerSource is ByteArraySeekableSource) {
+                        val srcBytes = innerSource.bytes
+                        val currentPos = innerSource.position().toInt()
+                        if (currentPos >= srcBytes.size) {
+                            -1
+                        } else {
+                            val toRead = minOf(len, srcBytes.size - currentPos)
+                            if (toRead > 0) {
+                                copyToHeap(module, bufPtr, srcBytes, currentPos, toRead)
+                                innerSource.seek((currentPos + toRead).toLong())
+                            }
+                            toRead
+                        }
+                    } else {
+                        if (readBuffer.size < len) {
+                            readBuffer = ByteArray(len)
+                        }
+                        val readBytes = innerSource.read(readBuffer, 0, len)
+                        if (readBytes > 0) {
+                            copyToHeap(module, bufPtr, readBuffer, 0, readBytes)
+                        }
+                        readBytes
                     }
-                    val readBytes = innerSource.read(readBuffer, 0, len)
-                    if (readBytes > 0) {
-                        copyToHeap(module, bufPtr, readBuffer, 0, readBytes)
-                    }
-                    readBytes
                 } catch (e: Throwable) {
+                    if (sourceCtx.pendingException == null) {
+                        sourceCtx.pendingException = e
+                    }
                     -1
                 }
             }
         },
         seekFn = { pos ->
-            try {
-                val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                innerSource?.seek(pos.toLong())
-            } catch (e: Throwable) {
-                // Safe guard to prevent throwing into C++ Wasm boundary
+            if (sourceCtx.pendingException == null) {
+                try {
+                    sourceCtx.source.seek(pos.toLong())
+                } catch (e: Throwable) {
+                    if (sourceCtx.pendingException == null) {
+                        sourceCtx.pendingException = e
+                    }
+                }
             }
         },
         posFn = {
-            try {
-                val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                innerSource?.position()?.toDouble() ?: 0.0
-            } catch (e: Throwable) {
+            if (sourceCtx.pendingException != null) {
                 0.0
+            } else {
+                try {
+                    sourceCtx.source.position().toDouble()
+                } catch (e: Throwable) {
+                    if (sourceCtx.pendingException == null) {
+                        sourceCtx.pendingException = e
+                    }
+                    0.0
+                }
             }
         },
         lenFn = {
-            try {
-                val innerSource = getOpaque(sourceOpaqueId) as? SeekableSource
-                innerSource?.length()?.toDouble() ?: 0.0
-            } catch (e: Throwable) {
+            if (sourceCtx.pendingException != null) {
                 0.0
+            } else {
+                try {
+                    sourceCtx.source.length().toDouble()
+                } catch (e: Throwable) {
+                    if (sourceCtx.pendingException == null) {
+                        sourceCtx.pendingException = e
+                    }
+                    0.0
+                }
             }
         }
     )
@@ -391,9 +429,11 @@ public class NodeFileSeekableSource(private val pathStr: String, private val mod
     }
 }
 
+@Suppress("LongParameterList")
 private class WasmArchiveReader(
     private val module: JsAny,
     private val sourceOpaqueId: Int,
+    private val sourceCtx: WasmSourceContext,
     private val sourcePtr: Int,
     private val readFuncPtr: Int,
     private val seekFuncPtr: Int,
@@ -403,16 +443,31 @@ private class WasmArchiveReader(
 ) : ArchiveReader {
 
     private var isClosed = false
+    private var isOperating = false
     private var cachedWriteFuncPtr: Int = 0
     private var cachedSinkPtr: Int = 0
     private var cachedErrMsgPtr: Int = 0
     private val writeBuffer = ByteArray(WriteChunkSize)
 
-    @Suppress("NestedBlockDepth", "MagicNumber")
-    override fun getEntries(): List<ArchiveEntry> {
-        if (isClosed) throw IllegalStateException("Reader is closed")
+    private inline fun <T> withExclusiveAccess(block: () -> T): T {
+        check(!isOperating) { "Re-entrant ArchiveReader operation from callback is not allowed" }
+        check(!isClosed) { "Reader is closed" }
+        isOperating = true
+        try {
+            return block()
+        } finally {
+            isOperating = false
+        }
+    }
 
+    @Suppress("NestedBlockDepth", "MagicNumber")
+    override fun getEntries(): List<ArchiveEntry> = withExclusiveAccess {
+        sourceCtx.pendingException = null
         val count = wasmGetEntryCount(module, handle)
+        sourceCtx.pendingException?.let {
+            sourceCtx.pendingException = null
+            throw it
+        }
         if (count < 0) return emptyList()
 
         val list = ArrayList<ArchiveEntry>(count)
@@ -456,17 +511,21 @@ private class WasmArchiveReader(
         } finally {
             wasmFree(module, entryPtr)
         }
-        return list
+        sourceCtx.pendingException?.let {
+            sourceCtx.pendingException = null
+            throw it
+        }
+        list
     }
 
-    override fun extractEntry(entry: ArchiveEntry, sink: Sink) {
-        if (isClosed) throw IllegalStateException("Reader is closed")
-
-        val sinkOpaqueId = registerOpaque(sink)
+    override fun extractEntry(entry: ArchiveEntry, sink: Sink) = withExclusiveAccess {
+        sourceCtx.pendingException = null
+        val sinkCtx = WasmSinkContext(sink)
+        val sinkOpaqueId = registerOpaque(sinkCtx)
 
         try {
             // Register Kotlin Sink callback into JS global map
-            putWasmSinkCallbacks(module, sinkOpaqueId, writeBuffer)
+            putWasmSinkCallbacks(module, sinkOpaqueId, sinkCtx, writeBuffer)
 
             if (cachedWriteFuncPtr == 0) {
                 cachedWriteFuncPtr = registerWriteCallback(module)
@@ -490,6 +549,15 @@ private class WasmArchiveReader(
                 ErrMsgBufferSize
             )
 
+            val sourceEx = sourceCtx.pendingException
+            sourceCtx.pendingException = null
+            val sinkEx = sinkCtx.pendingException
+            sinkCtx.pendingException = null
+            val callbackEx = sinkEx ?: sourceEx
+            if (callbackEx != null) {
+                throw callbackEx
+            }
+
             if (success == 0) {
                 val errMsg = wasmUtf8ToString(module, cachedErrMsgPtr)
                 throw ArchiveIOException(
@@ -503,6 +571,7 @@ private class WasmArchiveReader(
     }
 
     override fun close() {
+        check(!isOperating) { "Cannot close ArchiveReader from within a callback" }
         if (!isClosed) {
             isClosed = true
             if (cachedSinkPtr != 0) {
@@ -525,7 +594,7 @@ private class WasmArchiveReader(
             wasmRemoveFunction(module, lenFuncPtr)
             removeSourceJs(sourceOpaqueId)
             try {
-                (getOpaque(sourceOpaqueId) as? SeekableSource)?.close()
+                sourceCtx.source.close()
             } finally {
                 releaseOpaque(sourceOpaqueId)
             }
@@ -534,22 +603,34 @@ private class WasmArchiveReader(
 }
 
 @Suppress("SwallowedException", "TooGenericExceptionCaught")
-private fun putWasmSinkCallbacks(module: JsAny, sinkOpaqueId: Int, writeBuffer: ByteArray) {
+private fun putWasmSinkCallbacks(
+    module: JsAny,
+    sinkOpaqueId: Int,
+    sinkCtx: WasmSinkContext,
+    writeBuffer: ByteArray
+) {
     putSinkJs(
         sinkOpaqueId,
         writeFn = { bufPtr, len ->
-            val innerSink = getOpaque(sinkOpaqueId) as? Sink
-            if (innerSink != null) {
+            if (sinkCtx.pendingException != null) {
+                0
+            } else {
+                val innerSink = sinkCtx.sink
                 try {
                     var offset = 0
                     while (offset < len) {
                         val chunk = minOf(WriteChunkSize, len - offset)
                         copyFromHeap(module, bufPtr + offset, writeBuffer, chunk)
                         innerSink.write(writeBuffer, 0, chunk)
+                        innerSink.emit()
                         offset += chunk
                     }
+                    1
                 } catch (e: Throwable) {
-                    // Safe guard to prevent throwing into C++ Wasm boundary
+                    if (sinkCtx.pendingException == null) {
+                        sinkCtx.pendingException = e
+                    }
+                    0
                 }
             }
         }

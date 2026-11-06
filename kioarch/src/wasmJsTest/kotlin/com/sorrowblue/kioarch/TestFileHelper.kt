@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.sorrowblue.kioarch
 
 import kotlin.coroutines.resume
@@ -145,3 +147,7 @@ internal actual suspend fun getTestFilePath(envVarName: String): Path? {
 internal actual val isLargeContentVerificationEnabled: Boolean = false
 
 internal actual val isCallbackExceptionSupported: Boolean = true
+
+internal actual fun getActiveNativeAllocations(): Long = getWasmActiveNativeAllocations()
+
+internal actual fun getActivePlatformReferences(): Long = getWasmActiveOpaqueReferences()

@@ -26,8 +26,8 @@ typedef void (*kio_seek_fn)(void *opaque, int64_t pos);
 typedef int64_t (*kio_position_fn)(void *opaque);
 typedef int64_t (*kio_length_fn)(void *opaque);
 
-// Output stream callback (kotlinx.io.Sink.write equivalent)
-typedef void (*kio_write_fn)(void *opaque, const uint8_t *buf, int32_t len);
+// Output stream callback (kotlinx.io.Sink.write equivalent; returns non-zero on success, 0 on error)
+typedef int32_t (*kio_write_fn)(void *opaque, const uint8_t *buf, int32_t len);
 
 typedef struct {
     kio_read_fn read;
@@ -61,5 +61,6 @@ int32_t kio_get_entry(uint64_t handle, int32_t index, kio_entry_t *entry);
 int32_t kio_extract_entry(uint64_t handle, int32_t index, kio_sink_t sink, char *err_msg, int32_t err_msg_len);
 
 uint64_t kio_get_resident_memory(void);
+int64_t kio_get_active_allocations(void);
 
 #endif // KIOARCH_IOS_H

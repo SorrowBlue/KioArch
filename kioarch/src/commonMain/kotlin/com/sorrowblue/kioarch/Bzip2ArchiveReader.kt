@@ -22,3 +22,25 @@ package com.sorrowblue.kioarch
  * It transparently delegates all archive operations to the underlying native reader.
  */
 public class Bzip2ArchiveReader(private val delegate: ArchiveReader) : ArchiveReader by delegate
+
+@Suppress("MagicNumber")
+private fun isBzip2(source: SeekableSource): Boolean {
+    val current = source.position()
+    source.seek(0)
+    val buf = ByteArray(3)
+    val read = source.read(buf, 0, 3)
+    source.seek(current)
+    return read >= 3 &&
+        buf[0] == 0x42.toByte() &&
+        buf[1] == 0x5A.toByte() &&
+        buf[2] == 0x68.toByte()
+}
+
+@Suppress("TooGenericExceptionCaught")
+internal fun wrapWithBzip2IfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader =
+    try {
+        if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
+    } catch (t: Throwable) {
+        reader.close()
+        throw t
+    }

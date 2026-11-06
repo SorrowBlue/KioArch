@@ -25,6 +25,8 @@ import com.sorrowblue.kioarch.internal.cinterop.kio_get_entry_count
 import com.sorrowblue.kioarch.internal.cinterop.kio_open_archive
 import com.sorrowblue.kioarch.internal.cinterop.kio_sink_t
 import com.sorrowblue.kioarch.internal.cinterop.kio_source_t
+import kotlin.concurrent.AtomicLong
+import kotlin.concurrent.AtomicReference
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.CPointer
@@ -50,6 +52,7 @@ import platform.Foundation.NSFileHandle
 import platform.Foundation.NSLock
 import platform.Foundation.NSShiftJISStringEncoding
 import platform.Foundation.NSString
+import platform.Foundation.NSThread
 import platform.Foundation.NSURL
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.closeFile
@@ -282,17 +285,45 @@ private class IosNSFileHandleSeekableSource(private val fileHandle: NSFileHandle
     }
 }
 
+internal val activeIosStableRefs = AtomicLong(0L)
+
+private class IosSourceContext(val source: SeekableSource, var pendingException: Throwable? = null)
+
+private class IosSinkContext(val sink: Sink, var pendingException: Throwable? = null)
+
 private class IosArchiveReader(
-    private val sourceStableRef: StableRef<SeekableSource>,
+    private val sourceStableRef: StableRef<IosSourceContext>,
     private val handle: Long
 ) : ArchiveReader {
 
     private val lock = NSLock()
+    private val activeThread = AtomicReference<NSThread?>(null)
     private var isClosed = false
 
-    override fun getEntries(): List<ArchiveEntry> = lock.withLock {
-        if (isClosed) throw IllegalStateException("Reader is closed")
+    private inline fun <T> withExclusiveAccess(action: () -> T): T {
+        val current = NSThread.currentThread
+        check(activeThread.value != current) {
+            "Re-entrant ArchiveReader operation from callback is not allowed"
+        }
+        return lock.withLock {
+            check(!isClosed) { "Reader is closed" }
+            activeThread.value = current
+            try {
+                action()
+            } finally {
+                activeThread.value = null
+            }
+        }
+    }
+
+    override fun getEntries(): List<ArchiveEntry> = withExclusiveAccess {
+        val sourceCtx = sourceStableRef.get()
+        sourceCtx.pendingException = null
         val count = kio_get_entry_count(handle.toULong())
+        sourceCtx.pendingException?.let {
+            sourceCtx.pendingException = null
+            throw it
+        }
         if (count < 0) return emptyList()
 
         val list = ArrayList<ArchiveEntry>(count)
@@ -301,7 +332,13 @@ private class IosArchiveReader(
             for (i in 0 until count) {
                 if (kio_get_entry(handle.toULong(), i, entry.ptr) != 0) {
                     val cName = entry.name
-                    val nameStr = decodeCName(cName)
+                    val nameStr = try {
+                        decodeCName(cName)
+                    } finally {
+                        if (cName != null) {
+                            free(cName)
+                        }
+                    }
                     val normalizedName = nameStr.replace('\\', '/')
                     list.add(
                         ArchiveEntry(
@@ -313,18 +350,23 @@ private class IosArchiveReader(
                             crc = entry.crc.toLong()
                         )
                     )
-                    if (cName != null) {
-                        free(cName)
-                    }
                 }
             }
+        }
+        sourceCtx.pendingException?.let {
+            sourceCtx.pendingException = null
+            throw it
         }
         list
     }
 
-    override fun extractEntry(entry: ArchiveEntry, sink: Sink) = lock.withLock {
-        if (isClosed) throw IllegalStateException("Reader is closed")
-        val sinkStableRef = StableRef.create(sink)
+    @Suppress("TooGenericExceptionCaught", "LongMethod")
+    override fun extractEntry(entry: ArchiveEntry, sink: Sink) = withExclusiveAccess {
+        val sourceCtx = sourceStableRef.get()
+        sourceCtx.pendingException = null
+        val sinkCtx = IosSinkContext(sink)
+        val sinkStableRef = StableRef.create(sinkCtx)
+        activeIosStableRefs.incrementAndGet()
         try {
             memScoped {
                 val errMsgBytes = allocArray<ByteVar>(ErrMsgBufferSize)
@@ -336,15 +378,23 @@ private class IosArchiveReader(
                                 buf: CPointer<UByteVar>?,
                                 len: Int
                             ->
-                            if (opaque == null || buf == null) return@staticCFunction
-                            val innerSink = opaque.asStableRef<Sink>().get()
-                            val byteArray = ByteArray(len)
-                            if (len > 0) {
-                                byteArray.usePinned { pinned ->
-                                    memcpy(pinned.addressOf(0), buf, len.toULong())
+                            if (opaque == null || buf == null) return@staticCFunction 0
+                            val ctx = opaque.asStableRef<IosSinkContext>().get()
+                            if (ctx.pendingException != null) return@staticCFunction 0
+                            try {
+                                val byteArray = ByteArray(len)
+                                if (len > 0) {
+                                    byteArray.usePinned { pinned ->
+                                        memcpy(pinned.addressOf(0), buf, len.toULong())
+                                    }
                                 }
+                                ctx.sink.write(byteArray, 0, len)
+                                ctx.sink.emit()
+                                1
+                            } catch (t: Throwable) {
+                                ctx.pendingException = t
+                                0
                             }
-                            innerSink.write(byteArray, 0, len)
                         }
                     opaque = sinkStableRef.asCPointer()
                 }
@@ -357,6 +407,15 @@ private class IosArchiveReader(
                     ErrMsgBufferSize
                 )
 
+                val sourceEx = sourceCtx.pendingException
+                sourceCtx.pendingException = null
+                val sinkEx = sinkCtx.pendingException
+                sinkCtx.pendingException = null
+                val callbackEx = sinkEx ?: sourceEx
+                if (callbackEx != null) {
+                    throw callbackEx
+                }
+
                 if (success == 0) {
                     val errMsg = errMsgBytes.toKString()
                     throw ArchiveIOException(
@@ -366,19 +425,27 @@ private class IosArchiveReader(
             }
         } finally {
             sinkStableRef.dispose()
+            activeIosStableRefs.decrementAndGet()
         }
     }
 
-    override fun close() = lock.withLock {
-        if (!isClosed) {
-            isClosed = true
-            try {
-                kio_close_archive(handle.toULong())
-            } finally {
+    override fun close() {
+        val current = NSThread.currentThread
+        check(activeThread.value != current) {
+            "Cannot close ArchiveReader from within a callback"
+        }
+        lock.withLock {
+            if (!isClosed) {
+                isClosed = true
                 try {
-                    sourceStableRef.get().close()
+                    kio_close_archive(handle.toULong())
                 } finally {
-                    sourceStableRef.dispose()
+                    try {
+                        sourceStableRef.get().source.close()
+                    } finally {
+                        sourceStableRef.dispose()
+                        activeIosStableRefs.decrementAndGet()
+                    }
                 }
             }
         }
@@ -397,27 +464,13 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    @Suppress("MagicNumber")
-    private fun isBzip2(source: SeekableSource): Boolean {
-        val current = source.position()
-        source.seek(0)
-        val buf = ByteArray(3)
-        val read = source.read(buf, 0, 3)
-        source.seek(current)
-        return read >= 3 &&
-            buf[0] == 0x42.toByte() &&
-            buf[1] == 0x5A.toByte() &&
-            buf[2] == 0x68.toByte()
-    }
-
-    private fun wrapIfNeeded(source: SeekableSource, reader: ArchiveReader): ArchiveReader =
-        if (isBzip2(source)) Bzip2ArchiveReader(reader) else reader
-
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "LongMethod", "CyclomaticComplexMethod")
     public actual fun createReader(source: SeekableSource): ArchiveReader {
-        val sourceStableRef = StableRef.create(source)
+        val sourceCtx = IosSourceContext(source)
+        val sourceStableRef = StableRef.create(sourceCtx)
+        activeIosStableRefs.incrementAndGet()
+        var handle: ULong = 0uL
         try {
-            var handle: ULong = 0uL
             memScoped {
                 val errMsgBytes = allocArray<ByteVar>(ErrMsgBufferSize)
 
@@ -429,45 +482,77 @@ public actual object KioArch {
                                 len: Int
                             ->
                             if (opaque == null || buf == null) return@staticCFunction -1
-                            val innerSource = opaque.asStableRef<SeekableSource>().get()
-                            val byteArray = ByteArray(len)
-                            val readBytes = innerSource.read(byteArray, 0, len)
-                            if (readBytes > 0) {
-                                byteArray.usePinned { pinned ->
-                                    memcpy(buf, pinned.addressOf(0), readBytes.toULong())
+                            val ctx = opaque.asStableRef<IosSourceContext>().get()
+                            if (ctx.pendingException != null) return@staticCFunction -1
+                            try {
+                                val byteArray = ByteArray(len)
+                                val readBytes = ctx.source.read(byteArray, 0, len)
+                                if (readBytes > 0) {
+                                    byteArray.usePinned { pinned ->
+                                        memcpy(buf, pinned.addressOf(0), readBytes.toULong())
+                                    }
                                 }
+                                readBytes
+                            } catch (t: Throwable) {
+                                ctx.pendingException = t
+                                -1
                             }
-                            readBytes
                         }
                     seek = staticCFunction { opaque: COpaquePointer?, pos: Long ->
                         if (opaque == null) return@staticCFunction
-                        val innerSource = opaque.asStableRef<SeekableSource>().get()
-                        innerSource.seek(pos)
+                        val ctx = opaque.asStableRef<IosSourceContext>().get()
+                        if (ctx.pendingException != null) return@staticCFunction
+                        try {
+                            ctx.source.seek(pos)
+                        } catch (t: Throwable) {
+                            ctx.pendingException = t
+                        }
                     }
                     position = staticCFunction { opaque: COpaquePointer? ->
                         if (opaque == null) return@staticCFunction 0L
-                        val innerSource = opaque.asStableRef<SeekableSource>().get()
-                        innerSource.position()
+                        val ctx = opaque.asStableRef<IosSourceContext>().get()
+                        if (ctx.pendingException != null) return@staticCFunction 0L
+                        try {
+                            ctx.source.position()
+                        } catch (t: Throwable) {
+                            ctx.pendingException = t
+                            0L
+                        }
                     }
                     length = staticCFunction { opaque: COpaquePointer? ->
                         if (opaque == null) return@staticCFunction 0L
-                        val innerSource = opaque.asStableRef<SeekableSource>().get()
-                        innerSource.length()
+                        val ctx = opaque.asStableRef<IosSourceContext>().get()
+                        if (ctx.pendingException != null) return@staticCFunction 0L
+                        try {
+                            ctx.source.length()
+                        } catch (t: Throwable) {
+                            ctx.pendingException = t
+                            0L
+                        }
                     }
                     opaque = sourceStableRef.asCPointer()
                 }
 
                 handle = kio_open_archive(kioSource.readValue(), errMsgBytes, ErrMsgBufferSize)
+                sourceCtx.pendingException?.let {
+                    sourceCtx.pendingException = null
+                    throw it
+                }
                 if (handle == 0uL) {
                     val errMsg = errMsgBytes.toKString()
                     throw ArchiveIOException("Failed to open archive. Native error: $errMsg")
                 }
             }
-            return wrapIfNeeded(source, IosArchiveReader(sourceStableRef, handle.toLong()))
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
+            if (handle != 0uL) {
+                kio_close_archive(handle)
+            }
             sourceStableRef.dispose()
-            throw e
+            activeIosStableRefs.decrementAndGet()
+            throw t
         }
+        val reader = IosArchiveReader(sourceStableRef, handle.toLong())
+        return wrapWithBzip2IfNeeded(source, reader)
     }
 
     /**
@@ -487,8 +572,16 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public actual fun createReader(path: Path): ArchiveReader =
-        createReader(IosPathSeekableSource(path.toString()))
+    @Suppress("TooGenericExceptionCaught")
+    public actual fun createReader(path: Path): ArchiveReader {
+        val source = IosPathSeekableSource(path.toString())
+        return try {
+            createReader(source)
+        } catch (t: Throwable) {
+            source.close()
+            throw t
+        }
+    }
 
     /**
      * Creates an [ArchiveReader] from an in-memory [NSData] for iOS.
@@ -507,8 +600,16 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public fun createReader(nsUrl: NSURL): ArchiveReader =
-        createReader(IosNSURLSeekableSource(nsUrl))
+    @Suppress("TooGenericExceptionCaught")
+    public fun createReader(nsUrl: NSURL): ArchiveReader {
+        val source = IosNSURLSeekableSource(nsUrl)
+        return try {
+            createReader(source)
+        } catch (t: Throwable) {
+            source.close()
+            throw t
+        }
+    }
 
     /**
      * Creates an [ArchiveReader] from an [NSFileHandle] for iOS.
@@ -517,6 +618,14 @@ public actual object KioArch {
      * @return an [ArchiveReader] to read the archive
      * @throws ArchiveException if native library fails to open the archive
      */
-    public fun createReader(fileHandle: NSFileHandle): ArchiveReader =
-        createReader(IosNSFileHandleSeekableSource(fileHandle))
+    @Suppress("TooGenericExceptionCaught")
+    public fun createReader(fileHandle: NSFileHandle): ArchiveReader {
+        val source = IosNSFileHandleSeekableSource(fileHandle)
+        return try {
+            createReader(source)
+        } catch (t: Throwable) {
+            source.close()
+            throw t
+        }
+    }
 }

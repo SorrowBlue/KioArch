@@ -2,6 +2,7 @@
 
 package com.sorrowblue.kioarch
 
+import com.sorrowblue.kioarch.internal.cinterop.kio_get_active_allocations
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.usePinned
@@ -44,4 +45,8 @@ internal actual suspend fun getTestFilePath(envVarName: String): Path? {
 
 internal actual val isLargeContentVerificationEnabled: Boolean = true
 
-internal actual val isCallbackExceptionSupported: Boolean = false
+internal actual val isCallbackExceptionSupported: Boolean = true
+
+internal actual fun getActiveNativeAllocations(): Long = kio_get_active_allocations()
+
+internal actual fun getActivePlatformReferences(): Long = activeIosStableRefs.value

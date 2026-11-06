@@ -31,6 +31,8 @@ internal class SeekableArchiveReader(
 
     private var isClosed = false
 
+    private var isOperating = false
+
     private var directBuffer: ByteBuffer? =
         if (useDirectOutput) ByteBuffer.allocateDirect(DIRECT_BUFFER_SIZE) else null
 
@@ -40,8 +42,18 @@ internal class SeekableArchiveReader(
         }
     }
 
-    override fun getEntries(): List<ArchiveEntry> = synchronized(lock) {
+    private inline fun <T> withExclusiveAccess(block: () -> T): T = synchronized(lock) {
+        check(!isOperating) { "Re-entrant ArchiveReader operation from callback is not allowed" }
         check(!isClosed) { "Reader is closed" }
+        isOperating = true
+        try {
+            block()
+        } finally {
+            isOperating = false
+        }
+    }
+
+    override fun getEntries(): List<ArchiveEntry> = withExclusiveAccess {
         val jniEntries = KioArchJni.getEntries(handle)
         val count = jniEntries.index.size
         val list = ArrayList<ArchiveEntry>(count)
@@ -61,8 +73,7 @@ internal class SeekableArchiveReader(
     }
 
     override fun extractEntry(entry: ArchiveEntry, sink: Sink) {
-        synchronized(lock) {
-            check(!isClosed) { "Reader is closed" }
+        withExclusiveAccess {
             val workBuffer = directBuffer
             val success = if (workBuffer != null) {
                 KioArchJni.extractEntryDirect(
@@ -78,6 +89,7 @@ internal class SeekableArchiveReader(
                         while (buffer.hasRemaining()) {
                             sink.write(buffer)
                         }
+                        sink.emit()
                         offset += chunk
                     }
                 }
@@ -92,6 +104,7 @@ internal class SeekableArchiveReader(
 
     override fun close() {
         synchronized(lock) {
+            check(!isOperating) { "Cannot close ArchiveReader from within a callback" }
             if (!isClosed) {
                 isClosed = true
                 directBuffer = null
