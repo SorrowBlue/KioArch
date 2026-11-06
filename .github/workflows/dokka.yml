@@ -24,13 +24,6 @@ jobs:
         uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: false
-      - name: Cache Kotlin/Native (Konan)
-        uses: actions/cache@v6.1.0
-        with:
-          path: ~/.konan
-          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
-          restore-keys: |
-            konan-${{ runner.os }}-
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: Build Zensical documentation site
