@@ -1,0 +1,61 @@
+name: Publish Documentation
+
+on:
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: false
+      - name: Setup Java and Gradle
+        uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
+      - name: Build Zensical documentation site
+        run: uvx zensical build --clean
+      - name: Generate Dokka API Reference
+        run: >
+          ./gradlew
+          :kioarch:dokkaGeneratePublicationHtml
+          -x compileJvmNatives
+          -x compileWasmNatives
+          -x compileIosNatives
+          -x cinteropKioarchIosArm64
+          -x cinteropKioarchIosSimulatorArm64
+          -x cinteropKioarchIosX64
+      - name: Embed Dokka API Reference into Zensical site
+        run: cp -R kioarch/build/dokka/html build/site/api
+      - name: Setup Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6.0.0
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: build/site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5.0.1

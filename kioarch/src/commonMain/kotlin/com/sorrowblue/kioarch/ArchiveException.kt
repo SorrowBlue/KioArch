@@ -17,43 +17,72 @@
 package com.sorrowblue.kioarch
 
 /**
- * Base exception class representing errors during archive operations in KioArch.
+ * Base exception hierarchy representing errors thrown during archive opening, inspection, or
+ * extraction in [KioArch].
+ *
+ * @param message a detail message describing the failure.
+ * @param cause the underlying cause of this exception, or `null` if none.
  */
 public sealed class ArchiveException(message: String, cause: Throwable? = null) :
     Exception(
         message,
         cause
     ) {
+    /**
+     * Creates an [ArchiveException] with the specified detail [message] and no cause.
+     *
+     * @param message a detail message describing the failure.
+     */
     protected constructor(message: String) : this(message, null)
 }
 
 /**
- * Exception thrown when the archive is corrupted or its data structure is invalid.
+ * Thrown when an archive's headers, compressed streams, or CRC-32 checksums are corrupted.
+ *
+ * @param message a detail message describing the corruption or validation failure.
  */
 public class ArchiveCorruptedException(message: String) : ArchiveException(message)
 
 /**
- * Exception thrown when an unsupported archive format, compression algorithm, or encryption method is used.
+ * Thrown when an archive uses an unsupported container format, compression codec, filter, or
+ * encryption scheme.
+ *
+ * @param message a detail message describing the unsupported feature.
  */
 public class ArchiveUnsupportedException(message: String) : ArchiveException(message)
 
 /**
- * Exception thrown when an I/O error occurs during archive reading, writing, or seeking.
+ * Thrown when an I/O failure occurs while reading from a [SeekableSource], seeking within the
+ * archive, or writing decompressed bytes to a `kotlinx.io.Sink`.
+ *
+ * @param message a detail message describing the I/O failure.
+ * @param cause the underlying I/O cause, or `null` if reported directly by the native engine.
  */
 public class ArchiveIOException(message: String, cause: Throwable? = null) :
     ArchiveException(
         message,
         cause
     ) {
+    /**
+     * Creates an [ArchiveIOException] with the specified detail [message] and no cause.
+     *
+     * @param message a detail message describing the I/O failure.
+     */
     public constructor(message: String) : this(message, null)
 }
 
 /**
- * Exception thrown when native memory allocation fails.
+ * Thrown when the native decompression engine fails to allocate required heap or dictionary
+ * memory.
+ *
+ * @param message a detail message describing the allocation failure.
  */
 public class ArchiveOutOfMemoryException(message: String) : ArchiveException(message)
 
 /**
- * Exception thrown when the specified file is not a valid archive or the input arguments are invalid.
+ * Thrown when the input stream is not a recognized archive or invalid arguments are supplied to an
+ * archive operation.
+ *
+ * @param message a detail message describing why the input or operation is invalid.
  */
 public class ArchiveInvalidException(message: String) : ArchiveException(message)

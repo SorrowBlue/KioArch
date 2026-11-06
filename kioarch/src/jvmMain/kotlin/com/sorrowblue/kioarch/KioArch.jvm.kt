@@ -21,18 +21,50 @@ import java.io.FileOutputStream
 import java.nio.file.Paths
 import kotlinx.io.files.Path
 
+/**
+ * JVM implementation of [KioArch] backed by JNI bindings to the native C decompression engine.
+ *
+ * On first invocation of [createReader], the embedded platform native library (`.dll` on Windows,
+ * `.dylib` on macOS, or `.so` on Linux) is automatically extracted from classpath resources and
+ * loaded into the JVM process if not already present on `java.library.path`.
+ */
 public actual object KioArch {
+    /**
+     * Creates an [ArchiveReader] reading from the given [source] on JVM.
+     *
+     * Passing a [DirectSeekableSource] (such as [FileSeekableSource] or [PathSeekableSource])
+     * enables zero-copy reads across the JNI boundary via direct `ByteBuffer` memory.
+     *
+     * @param source the random-access data source containing the archive bytes.
+     * @return a new [ArchiveReader] for reading the archive.
+     * @throws ArchiveException if the archive cannot be opened or its format is unsupported.
+     */
     public actual fun createReader(source: SeekableSource): ArchiveReader {
         loadLibrary()
         return wrapWithBzip2IfNeeded(source, SeekableArchiveReader(source))
     }
 
+    /**
+     * Creates an [ArchiveReader] reading from an in-memory [byteArray] on JVM.
+     *
+     * @param byteArray the byte array containing the archive data.
+     * @return a new [ArchiveReader] for reading the archive.
+     * @throws ArchiveException if the archive cannot be opened or its format is unsupported.
+     */
     public actual fun createReader(byteArray: ByteArray): ArchiveReader {
         loadLibrary()
         val source = ByteArraySeekableSource(byteArray)
         return wrapWithBzip2IfNeeded(source, SeekableArchiveReader(source))
     }
 
+    /**
+     * Creates an [ArchiveReader] reading from a Kotlin Multiplatform [path] on JVM via
+     * [PathSeekableSource].
+     *
+     * @param path the path to the archive file.
+     * @return a new [ArchiveReader] for reading the archive.
+     * @throws ArchiveException if the archive cannot be opened or its format is unsupported.
+     */
     @Suppress("TooGenericExceptionCaught")
     public actual fun createReader(path: Path): ArchiveReader {
         loadLibrary()

@@ -11,3 +11,4 @@ build_wasm/
 kotlin-js-store/
 sample/web/src/wasmJsMain/resources/kioarch.js
 sample/web/src/wasmJsMain/resources/kioarch.wasm
+docs/api/

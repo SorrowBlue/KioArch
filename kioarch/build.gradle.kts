@@ -4,12 +4,22 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.multiplatformLibrary)
     alias(libs.plugins.maven.publish)
-    alias(libs.plugins.kotlin.dokka)
 
     id("kioarch.versioning")
     id("kioarch.detekt")
+    id("kioarch.dokka")
     id("kioarch.natives")
     id("kioarch.testing")
+}
+
+dokka {
+    moduleName.set("KioArch")
+    dokkaPublications.html {
+        includes.from("MODULE.md")
+    }
+    dokkaSourceSets.configureEach {
+        includes.from("MODULE.md")
+    }
 }
 
 kotlin {

@@ -49,13 +49,14 @@ comments:
     active: false
     excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**']
   OutdatedDocumentation:
-    active: false
+    active: true
+    excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**', '**/wasmJsTest/**', '**/androidJvmTest/**', '**/androidHostTest/**', '**/androidDeviceTest/**', '**/sample/**', '**/benchmark/**', '**/build-logic/**', '**/src/main/**', '**/*.kts']
     matchTypeParameters: true
     matchDeclarationsOrder: true
-    allowParamOnConstructorProperties: false
+    allowParamOnConstructorProperties: true
   UndocumentedPublicClass:
-    active: false
-    excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**']
+    active: true
+    excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**', '**/wasmJsTest/**', '**/androidJvmTest/**', '**/androidHostTest/**', '**/androidDeviceTest/**', '**/sample/**', '**/benchmark/**', '**/build-logic/**', '**/src/main/**', '**/*.kts']
     searchInNestedClass: true
     searchInInnerClass: true
     searchInInnerObject: true
@@ -63,12 +64,12 @@ comments:
     searchInProtectedClass: false
     ignoreDefaultCompanionObject: false
   UndocumentedPublicFunction:
-    active: false
-    excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**']
+    active: true
+    excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**', '**/wasmJsTest/**', '**/androidJvmTest/**', '**/androidHostTest/**', '**/androidDeviceTest/**', '**/sample/**', '**/benchmark/**', '**/build-logic/**', '**/src/main/**', '**/*.kts']
     searchProtectedFunction: false
   UndocumentedPublicProperty:
-    active: false
-    excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**']
+    active: true
+    excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**', '**/wasmJsTest/**', '**/androidJvmTest/**', '**/androidHostTest/**', '**/androidDeviceTest/**', '**/sample/**', '**/benchmark/**', '**/build-logic/**', '**/src/main/**', '**/*.kts']
     searchProtectedProperty: false
     ignoreEnumEntries: false
 

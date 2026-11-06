@@ -2,6 +2,7 @@
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-purple.svg?style=flat&logo=kotlin)](https://kotlinlang.org)
 [![Maven Central](https://img.shields.io/badge/Maven_Central-Publishing-orange.svg?style=flat)](https://search.maven.org)
+[![Documentation](https://img.shields.io/badge/Docs-Zensical_%2B_Dokka-7F52FF.svg?style=flat&logo=kotlin)](https://sorrowblue.github.io/KioArch/)
 [![Platform](https://img.shields.io/badge/Platform-JVM_%7C_Android_%7C_iOS_%7C_JS_%7C_WasmJs-blue.svg?style=flat)](#)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg?style=flat)](#)
 

@@ -20,6 +20,16 @@ import android.content.Context
 import android.util.Log
 import androidx.startup.Initializer
 
+/**
+ * Jetpack App Startup [Initializer] that preloads the native `libkioarch.so` library via
+ * [KioArch.loadLibrary] when the Android application starts.
+ *
+ * To disable automatic startup initialization and defer native library loading to a background
+ * thread, remove this initializer in your application's `AndroidManifest.xml` and invoke
+ * [KioArch.loadLibrary] manually before opening archives.
+ *
+ * @see KioArch.loadLibrary
+ */
 public class KioArchInitializer : Initializer<Unit> {
     public override fun create(context: Context) {
         KioArch.loadLibrary()

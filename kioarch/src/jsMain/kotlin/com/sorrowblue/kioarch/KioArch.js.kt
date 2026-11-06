@@ -479,6 +479,15 @@ private fun isNodeJs(): Boolean = js(
     "typeof process !== 'undefined' && process.versions != null && process.versions.node != null"
 ) as Boolean
 
+/**
+ * A Node.js-specific [SeekableSource] implementation for Kotlin/JS that performs synchronous random
+ * access via the Node.js `fs` module (`openSync`, `readSync`, `fstatSync`, `closeSync`).
+ *
+ * This class is intended for Node.js environments (CLI, server, or tests) and is not supported in
+ * browser runtimes.
+ *
+ * @param pathStr the filesystem path to the archive file to open in read-only mode.
+ */
 public class NodeFileSeekableSource(private val pathStr: String) : SeekableSource {
     private val fs: dynamic = js("eval('require')('fs')")
     private val fd: Int

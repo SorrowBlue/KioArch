@@ -71,11 +71,14 @@ jobs:
           version: '5.0.7'
           actions-cache-folder: 'emsdk-cache'
           cache-key: 'emsdk-5.0.7-${{ runner.os }}-${{ runner.arch }}'
+      - name: Extract Kotlin version
+        id: kotlin-version
+        run: echo "version=$(sed -n 's/^kotlin = "\(.*\)"/\1/p' gradle/libs.versions.toml)" >> "$GITHUB_OUTPUT"
       - name: Cache Kotlin/Native (Konan)
         uses: actions/cache@v6.1.0
         with:
           path: ~/.konan
-          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          key: konan-${{ runner.os }}-${{ steps.kotlin-version.outputs.version }}
           restore-keys: |
             konan-${{ runner.os }}-
       - name: Setup Java and Gradle
@@ -118,11 +121,14 @@ jobs:
           version: '5.0.7'
           actions-cache-folder: 'emsdk-cache'
           cache-key: 'emsdk-5.0.7-${{ runner.os }}-${{ runner.arch }}'
+      - name: Extract Kotlin version
+        id: kotlin-version
+        run: echo "version=$(sed -n 's/^kotlin = "\(.*\)"/\1/p' gradle/libs.versions.toml)" >> "$GITHUB_OUTPUT"
       - name: Cache Kotlin/Native (Konan)
         uses: actions/cache@v6.1.0
         with:
           path: ~/.konan
-          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          key: konan-${{ runner.os }}-${{ steps.kotlin-version.outputs.version }}
           restore-keys: |
             konan-${{ runner.os }}-
       - name: Setup Java and Gradle

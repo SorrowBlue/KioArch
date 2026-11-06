@@ -17,7 +17,13 @@
 package com.sorrowblue.kioarch
 
 /**
- * An in-memory implementation of [SeekableSource] wrapping a [ByteArray].
+ * An in-memory [SeekableSource] backed directly by a [ByteArray].
+ *
+ * Reading from this source copies slices from [bytes] without additional buffering, and [close] is
+ * a no-op.
+ *
+ * @param bytes the byte array containing the raw archive data.
+ * @see KioArch.createReader
  */
 public class ByteArraySeekableSource(internal val bytes: ByteArray) : SeekableSource {
     private var pos = 0L

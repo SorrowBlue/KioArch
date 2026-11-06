@@ -369,6 +369,18 @@ private fun putWasmSourceCallbacks(
     )
 }
 
+/**
+ * A Node.js-specific [SeekableSource] implementation for Kotlin/WasmJs that performs synchronous
+ * random access via the Node.js `node:fs` module (`openSync`, `readSync`, `fstatSync`,
+ * `closeSync`).
+ *
+ * This class is intended for Node.js environments (CLI, server, or tests) and is not supported in
+ * browser runtimes.
+ *
+ * @param pathStr the filesystem path to the archive file to open in read-only mode.
+ * @param module the initialized Emscripten WebAssembly module instance ([wasmModule]).
+ * @throws ArchiveIOException if the file at [pathStr] cannot be opened.
+ */
 public class NodeFileSeekableSource(private val pathStr: String, private val module: JsAny) :
     SeekableSource {
     private val fd: Int
