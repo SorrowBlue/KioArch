@@ -60,7 +60,12 @@ abstract class CompileIosNativesTask @Inject constructor(
             .start()
         val output = process.inputStream.bufferedReader().readText()
         if (process.waitFor() != 0) {
-            throw GradleException("CMake configure for iOS failed. Output:\n$output")
+            throw GradleException("CMake configure for iOS failed. Output:\n$output").apply {
+                addResolution(
+                    "Ensure CMake and Xcode with iOS SDKs are installed and configured " +
+                        "via 'xcode-select'."
+                )
+            }
         }
     }
 
@@ -85,7 +90,12 @@ abstract class CompileIosNativesTask @Inject constructor(
             .start()
         val output = process.inputStream.bufferedReader().readText()
         if (process.waitFor() != 0) {
-            throw GradleException("CMake build for iOS ($sdk) failed. Output:\n$output")
+            throw GradleException("CMake build for iOS ($sdk) failed. Output:\n$output").apply {
+                addResolution(
+                    "Ensure CMake and Xcode with iOS SDKs are installed and configured " +
+                        "via 'xcode-select'."
+                )
+            }
         }
         fileSystemOperations.copy {
             from(buildDir.resolve("$releaseDirName/libkioarch.a"))
