@@ -37,7 +37,7 @@ jobs:
         uses: jwlawson/actions-setup-cmake@v2.2.0
         with:
           github-api-token: ${{ secrets.GITHUB_TOKEN }}
-          cmake-version: 'v4.4.5'
+          cmake-version: 'v4.5.0'
       - name: Setup Java and Gradle
         uses: SorrowBlue/github-actions/.github/actions/setup-java-gradle@main
       - name: Run compileJvmNatives
@@ -64,7 +64,7 @@ jobs:
         uses: jwlawson/actions-setup-cmake@v2.2.0
         with:
           github-api-token: ${{ secrets.GITHUB_TOKEN }}
-          cmake-version: 'v4.4.5'
+          cmake-version: 'v4.5.0'
       - name: Setup Emscripten (emsdk)
         uses: emscripten-core/setup-emsdk@v16
         with:
@@ -114,7 +114,7 @@ jobs:
         uses: jwlawson/actions-setup-cmake@v2.2.0
         with:
           github-api-token: ${{ secrets.GITHUB_TOKEN }}
-          cmake-version: 'v4.4.5'
+          cmake-version: 'v4.5.0'
       - name: Setup Emscripten (emsdk)
         uses: emscripten-core/setup-emsdk@v16
         with:
