@@ -16,7 +16,7 @@ sevenzipjbindingJvm = "23.01-2.2"
 
 # Libraries
 java = "21"
-kotlinxIo = "0.9.2"
+kotlinxIo = "0.9.3"
 androidxComposeBom = "2026.09.00"
 androidxActivityCompose = "1.13.0"
 androidxCoreKtx = "1.18.0"
