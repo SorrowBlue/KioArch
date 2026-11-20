@@ -24,7 +24,7 @@ workflows:
         - 'endbug/label-sync@v2.3.3'
     '.github/workflows/lint.yml':
         - 'actions/checkout@v7.0.1'
-        - 'github/codeql-action@v4.39.3'
+        - 'github/codeql-action@v4.39.4'
         - 'sorrowblue/github-actions@main'
     '.github/workflows/publish.yml':
         - 'actions/cache@v6.1.0'
@@ -118,9 +118,9 @@ dependencies:
         commit: 'sha1-52074158190acb45f3077f9099fea818aa43f97a'
         owner_id: 26386270
         repo_id: 302251027
-    'github/codeql-action@v4.39.3':
-        ref: 'v4.39.3'
-        commit: 'sha1-33d7b85da1a04171e211befe2c739303b9a4c066'
+    'github/codeql-action@v4.39.4':
+        ref: 'v4.39.4'
+        commit: 'sha1-1bd86f2fdb4b86187fa4059f16f31a3202acc9ea'
         owner_id: 9919
         repo_id: 259445878
     'gradle/actions@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e':
